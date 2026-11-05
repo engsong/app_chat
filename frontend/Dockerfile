@@ -11,6 +11,7 @@ COPY vite.config.ts ./
 COPY tailwind.config.js ./
 COPY postcss.config.js ./
 COPY index.html ./
+COPY public/ ./public/
 
 RUN npm install --no-audit
 
