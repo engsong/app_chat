@@ -3,43 +3,58 @@ set -e
 
 DOMAIN="chat.on-excapp.app"
 EMAIL="admin@on-excapp.app"
-DATA_PATH="./nginx/certbot"
+WEBROOT="/var/www/certbot"
+CONF_FILE="/etc/nginx/sites-available/chat.on-excapp.app.conf"
 
-echo "=================================================="
-echo "🔐 Setting up SSL Certificate for: $DOMAIN"
-echo "=================================================="
+echo "=========================================================="
+echo "🔐 Setting up Nginx & SSL for $DOMAIN on Cloud Server"
+echo "=========================================================="
 
-mkdir -p "$DATA_PATH/conf/live/$DOMAIN"
-mkdir -p "$DATA_PATH/www"
+# Ensure webroot folder exists for Let's Encrypt validation
+mkdir -p "$WEBROOT"
 
-# 1. Create temporary self-signed certificate if none exists
-if [ ! -f "$DATA_PATH/conf/live/$DOMAIN/fullchain.pem" ]; then
-  echo "Creating temporary certificate to allow Nginx to start..."
-  openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
-    -keyout "$DATA_PATH/conf/live/$DOMAIN/privkey.pem" \
-    -out "$DATA_PATH/conf/live/$DOMAIN/fullchain.pem" \
-    -subj "/CN=localhost"
+# Copy site config to Nginx sites-available
+cp ./nginx/chat.on-excapp.app.conf "$CONF_FILE"
+
+# Check if SSL cert already exists
+if [ ! -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+    echo "⚠️ SSL certificate for $DOMAIN not found. Obtaining from Let's Encrypt..."
+
+    # Create temporary HTTP-only config to allow certbot challenge
+    cat <<EOF > /etc/nginx/sites-available/chat-temp.conf
+server {
+    listen 80;
+    server_name $DOMAIN;
+    location /.well-known/acme-challenge/ {
+        root $WEBROOT;
+        allow all;
+    }
+    location / {
+        return 200 "Certbot Challenge Server Ready";
+        add_header Content-Type text/plain;
+    }
+}
+EOF
+    ln -sf /etc/nginx/sites-available/chat-temp.conf /etc/nginx/sites-enabled/
+    nginx -t
+    systemctl reload nginx
+
+    # Request official SSL certificate
+    certbot certonly --webroot -w "$WEBROOT" \
+        -d "$DOMAIN" \
+        --email "$EMAIL" \
+        --agree-tos \
+        --non-interactive
+
+    # Remove temp config
+    rm -f /etc/nginx/sites-available/chat-temp.conf /etc/nginx/sites-enabled/chat-temp.conf
 fi
 
-# 2. Start Nginx container
-echo "Starting Nginx..."
-docker compose up -d nginx
+# Enable the production High-Security config
+ln -sf "$CONF_FILE" /etc/nginx/sites-enabled/
+nginx -t
+systemctl reload nginx
 
-# 3. Request official certificate from Let's Encrypt
-echo "Requesting official Let's Encrypt certificate..."
-docker compose run --rm --entrypoint "\
-  certbot certonly --webroot -w /var/www/certbot \
-    --email $EMAIL \
-    -d $DOMAIN \
-    --rsa-key-size 4096 \
-    --agree-tos \
-    --force-renewal \
-    --non-interactive" certbot
-
-# 4. Reload Nginx with the official certificate
-echo "Reloading Nginx with new certificate..."
-docker compose exec nginx nginx -s reload
-
-echo "=================================================="
-echo "🎉 SSL Certificate successfully configured for $DOMAIN!"
-echo "=================================================="
+echo "=========================================================="
+echo "🎉 Successfully configured https://$DOMAIN with Anti-DDoS!"
+echo "=========================================================="

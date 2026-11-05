@@ -29,11 +29,12 @@ jobs:
             APP_DIR="/var/www/chat-app"
 
             # Create directory if it does not exist
-            if [ ! -d "$APP_DIR" ]; then
-              echo "📁 Creating application directory: $APP_DIR"
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "📁 Creating and cloning application repository into: $APP_DIR"
               mkdir -p "$APP_DIR"
+              rm -rf "$APP_DIR"/* "$APP_DIR"/.[!.]*
+              git clone https://github.com/${{ github.repository }}.git "$APP_DIR"
               cd "$APP_DIR"
-              git clone https://github.com/${{ github.repository }}.git .
             else
               cd "$APP_DIR"
               echo "📥 Pulling latest updates from GitHub..."
@@ -41,14 +42,18 @@ jobs:
               git reset --hard origin/${{ github.ref_name }}
             fi
 
-            # Ensure nginx certbot directories exist
-            mkdir -p ./nginx/certbot/conf ./nginx/certbot/www
+            # Update Host Nginx Configuration if changed
+            if [ -f "./nginx/chat.on-excapp.app.conf" ]; then
+              echo "🛡️ Updating Nginx Anti-DDoS Configuration..."
+              cp ./nginx/chat.on-excapp.app.conf /etc/nginx/sites-available/chat.on-excapp.app.conf
+              ln -sf /etc/nginx/sites-available/chat.on-excapp.app.conf /etc/nginx/sites-enabled/
+              nginx -t && systemctl reload nginx || true
+            fi
 
             echo "🐳 Building and starting Docker containers..."
-            docker compose down --remove-orphans || true
-            docker compose up -d --build
+            docker compose up -d --build --remove-orphans
 
-            echo "🧹 Cleaning up old dangling Docker images..."
+            echo "🧹 Cleaning up old unused Docker images..."
             docker image prune -f
 
             echo "✅ Deployment completed successfully!"
