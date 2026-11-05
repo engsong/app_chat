@@ -169,7 +169,7 @@ apiRouter.post('/contacts', (req, res) => {
     return res.status(400).json({ error: "You cannot add yourself as a contact. Please enter another user's phone number, name, or ID." });
   }
 
-  const targetUser = Array.from(store.users.values()).find((u) => {
+  let contactUser = Array.from(store.users.values()).find((u) => {
     if (u.id === userId) return false;
     // 1. By exact ID or substring ID
     if (u.id.toLowerCase() === cleanQuery || u.id.toLowerCase().includes(cleanQuery)) return true;
@@ -182,9 +182,60 @@ apiRouter.post('/contacts', (req, res) => {
     return false;
   });
 
-  if (!targetUser) {
-    return res.status(404).json({ error: `No user found matching "${query}". Please check the phone number, user ID, or name.` });
+  if (!contactUser) {
+    // If not found in database, auto-create the contact just like WhatsApp does when adding a phone number!
+    if (cleanDigits.length >= 6) {
+      // It's a phone number (e.g. 02054245616)
+      const formattedPhone = query.trim();
+      contactUser = {
+        id: `usr-${uuidv4()}`,
+        phone: formattedPhone,
+        name: formattedPhone,
+        about: 'Hey there! I am using WhatsApp Business.',
+        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+        isBusiness: false,
+        isOnline: false,
+        lastSeen: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      store.users.set(contactUser.id, contactUser);
+    } else if (cleanQuery.startsWith('usr-')) {
+      // It's a User ID
+      contactUser = {
+        id: cleanQuery,
+        phone: `+${Math.floor(1000000000 + Math.random() * 9000000000)}`,
+        name: `User ${cleanQuery.slice(4, 12)}`,
+        about: 'Hey there! I am using WhatsApp Business.',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+        isBusiness: false,
+        isOnline: false,
+        lastSeen: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      store.users.set(contactUser.id, contactUser);
+    } else if (cleanQuery.length >= 2) {
+      // It's a name
+      contactUser = {
+        id: `usr-${uuidv4()}`,
+        phone: `+${Math.floor(1000000000 + Math.random() * 9000000000)}`,
+        name: query.trim(),
+        about: 'Hey there! I am using WhatsApp Business.',
+        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
+        isBusiness: false,
+        isOnline: false,
+        lastSeen: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      store.users.set(contactUser.id, contactUser);
+    } else {
+      return res.status(400).json({ error: 'Please enter a valid Phone number (at least 6 digits), Name, or User ID.' });
+    }
   }
+
+  const targetUser = contactUser;
 
   if (!store.userContacts.has(userId)) {
     store.userContacts.set(userId, new Set());

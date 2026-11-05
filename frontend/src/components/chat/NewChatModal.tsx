@@ -65,10 +65,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     setIsAdding(false);
 
     if (result.success) {
-      setFeedback({ type: 'success', message: result.message || 'Contact added successfully!' });
+      setFeedback({ type: 'success', message: result.message || 'Contact added! Opening chat...' });
       setAddQuery('');
+      setTimeout(() => {
+        onClose();
+      }, 500);
     } else {
-      setFeedback({ type: 'error', message: result.message || 'Could not find contact.' });
+      setFeedback({ type: 'error', message: result.message || 'Could not find or add contact.' });
     }
   };
 
