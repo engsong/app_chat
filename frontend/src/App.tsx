@@ -11,6 +11,7 @@ import { BusinessProfileModal } from './components/business/BusinessProfileModal
 import { LabelsModal } from './components/business/LabelsModal.js';
 import { StatusModal } from './components/status/StatusModal.js';
 import { NewChatModal } from './components/chat/NewChatModal.js';
+import { AuthPage } from './components/auth/AuthPage.js';
 import { useWebRTC } from './hooks/useWebRTC.js';
 import { User, Chat, Message, Product, QuickReply, Label, StatusItem } from './types/index.js';
 
@@ -72,12 +73,15 @@ export const App: React.FC = () => {
         setProducts(productsRes);
         setQuickReplies(qrRes);
         setLabels(labelsRes);
-        setStatuses(statusRes);
-
-        // Default active user is the first Business user
-        if (!currentUser && usersRes.length > 0) {
-          const defaultUser = usersRes.find((u: User) => u.isBusiness) || usersRes[0];
-          setCurrentUser(defaultUser);
+        // Restore user from localStorage if saved
+        const saved = localStorage.getItem('whatsapp_user');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            setCurrentUser(parsed);
+          } catch (e) {
+            // Ignore
+          }
         }
       } catch (err) {
         console.error('Error fetching initial data:', err);
@@ -252,8 +256,27 @@ export const App: React.FC = () => {
 
   // Switch Active User (for testing WhatsApp Business side vs Client side)
   const handleSwitchUser = (user: User) => {
+    localStorage.setItem('whatsapp_user', JSON.stringify(user));
     setCurrentUser(user);
     setActiveChatId(null);
+  };
+
+  const handleLoginSuccess = (user: User) => {
+    localStorage.setItem('whatsapp_user', JSON.stringify(user));
+    setCurrentUser(user);
+    setActiveChatId(null);
+    // Refresh all users so any newly registered user is visible in contacts
+    fetch('/api/users')
+      .then((r) => r.json())
+      .then((data) => setAllUsers(data))
+      .catch(() => {});
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('whatsapp_user');
+    setCurrentUser(null);
+    setActiveChatId(null);
+    setMessages([]);
   };
 
   // Add Product to Business Catalog
@@ -380,12 +403,10 @@ export const App: React.FC = () => {
 
   if (!currentUser) {
     return (
-      <div className="h-screen w-screen bg-[#111b21] flex items-center justify-center text-white">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 border-4 border-[#00a884] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm font-medium text-gray-400">Loading WhatsApp Business Ultra-Fast...</p>
-        </div>
-      </div>
+      <AuthPage
+        onLoginSuccess={handleLoginSuccess}
+        demoUsers={allUsers}
+      />
     );
   }
 
@@ -404,6 +425,7 @@ export const App: React.FC = () => {
         onOpenCatalog={() => setShowCatalog(true)}
         onOpenLabels={() => setShowLabels(true)}
         onOpenMyProfile={() => setProfileModalUser(currentUser)}
+        onLogout={handleLogout}
         selectedLabelId={selectedLabelId}
         onClearLabelFilter={() => setSelectedLabelId(null)}
         labels={labels}

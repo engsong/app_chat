@@ -11,7 +11,8 @@ import {
   Check,
   CheckCheck,
   ArrowRightLeft,
-  X
+  X,
+  LogOut
 } from 'lucide-react';
 import { Chat, User, Label } from '../../types/index.js';
 
@@ -27,6 +28,7 @@ interface SidebarProps {
   onOpenCatalog: () => void;
   onOpenLabels: () => void;
   onOpenMyProfile: () => void;
+  onLogout: () => void;
   selectedLabelId: string | null;
   onClearLabelFilter: () => void;
   labels: Label[];
@@ -44,6 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenCatalog,
   onOpenLabels,
   onOpenMyProfile,
+  onLogout,
   selectedLabelId,
   onClearLabelFilter,
   labels,
@@ -142,7 +145,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </button>
                 ))}
               </div>
-              <div className="border-t border-[#2a3942] mt-2 pt-2">
+              <div className="border-t border-[#2a3942] mt-2 pt-2 space-y-1">
                 <button
                   onClick={() => {
                     onOpenMyProfile();
@@ -151,6 +154,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="w-full py-1.5 px-3 rounded-lg bg-[#111b21] hover:bg-[#2a3942] text-xs text-center text-[#00a884] font-medium"
                 >
                   Edit Business Profile Info
+                </button>
+                <button
+                  onClick={() => {
+                    setShowUserSwitcher(false);
+                    onLogout();
+                  }}
+                  className="w-full py-1.5 px-3 rounded-lg hover:bg-red-500/10 text-xs text-center text-red-400 font-medium flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <LogOut className="w-3.5 h-3.5" /> Sign Out / Switch Account
                 </button>
               </div>
             </div>

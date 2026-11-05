@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { store } from '../store.js';
+import { UserData } from '../types.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export const apiRouter = Router();
@@ -13,29 +14,90 @@ apiRouter.get('/users', (req, res) => {
   res.json(users);
 });
 
-// Switch user or login by phone
-apiRouter.post('/auth/login', (req, res) => {
-  const { phone, name, isBusiness, businessName } = req.body;
+// 1. User Registration (Create New Account)
+apiRouter.post('/auth/register', (req, res) => {
+  const {
+    name,
+    phone,
+    password,
+    isBusiness,
+    businessName,
+    businessCategory,
+    businessDescription,
+    avatar,
+  } = req.body;
 
-  let user = Array.from(store.users.values()).find((u) => u.phone === phone);
-  if (!user) {
-    user = {
-      id: `usr-${uuidv4()}`,
-      phone: phone || '+1 555 ' + Math.floor(1000 + Math.random() * 9000),
-      name: name || 'New WhatsApp User',
-      about: isBusiness ? 'Welcome to our official business chat!' : 'Hey there! I am using WhatsApp Business.',
-      isBusiness: Boolean(isBusiness),
-      businessName: isBusiness ? (businessName || name) : undefined,
-      isOnline: true,
-      lastSeen: new Date(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    store.users.set(user.id, user);
-  } else {
-    user.isOnline = true;
-    user.lastSeen = new Date();
+  if (!name || !phone || !password) {
+    return res.status(400).json({ error: 'Name, phone number, and password are required.' });
   }
+
+  // Check if phone already registered
+  const existingUser = Array.from(store.users.values()).find((u) => u.phone === phone);
+  if (existingUser) {
+    return res.status(400).json({ error: 'An account with this phone number already exists. Please log in.' });
+  }
+
+  const defaultAvatars = [
+    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
+    'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
+    'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=150',
+  ];
+  const chosenAvatar = avatar || defaultAvatars[Math.floor(Math.random() * defaultAvatars.length)];
+
+  const newUser: UserData = {
+    id: `usr-${uuidv4()}`,
+    phone,
+    password,
+    name,
+    avatar: chosenAvatar,
+    about: isBusiness
+      ? 'Welcome to our official business chat!'
+      : 'Hey there! I am using WhatsApp Business.',
+    isBusiness: Boolean(isBusiness),
+    businessName: isBusiness ? (businessName || name) : undefined,
+    businessCategory: isBusiness ? (businessCategory || 'General Business') : undefined,
+    businessDescription: isBusiness ? businessDescription : undefined,
+    isOnline: true,
+    lastSeen: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  store.users.set(newUser.id, newUser);
+  res.status(201).json({ success: true, user: newUser });
+});
+
+// 2. User Login
+apiRouter.post('/auth/login', (req, res) => {
+  const { phone, password, demoUserId } = req.body;
+
+  // Fast demo user login bypass if selected directly
+  if (demoUserId) {
+    const user = store.users.get(demoUserId);
+    if (user) {
+      user.isOnline = true;
+      user.lastSeen = new Date();
+      return res.json({ success: true, user });
+    }
+  }
+
+  if (!phone) {
+    return res.status(400).json({ error: 'Phone number is required.' });
+  }
+
+  const user = Array.from(store.users.values()).find((u) => u.phone === phone);
+  if (!user) {
+    return res.status(401).json({ error: 'No account found with this phone number. Please check or create a new account.' });
+  }
+
+  // If user has a password set and password was provided, verify it
+  if (user.password && password && user.password !== password) {
+    return res.status(401).json({ error: 'Incorrect password. Please try again.' });
+  }
+
+  user.isOnline = true;
+  user.lastSeen = new Date();
 
   res.json({ success: true, user });
 });

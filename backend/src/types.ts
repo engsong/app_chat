@@ -1,6 +1,7 @@
 export interface UserData {
   id: string;
   phone: string;
+  password?: string;
   name: string;
   email?: string;
   avatar?: string;

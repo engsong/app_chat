@@ -61,6 +61,7 @@ class InMemoryStore {
     const user1: UserData = {
       id: 'usr-biz-1',
       phone: '+1 800 555 0199',
+      password: 'password123',
       name: 'Nexus Electronics',
       email: 'support@nexuselectronics.com',
       avatar: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=150',
@@ -81,6 +82,7 @@ class InMemoryStore {
     const user2: UserData = {
       id: 'usr-client-2',
       phone: '+1 415 555 2468',
+      password: 'password123',
       name: 'Sarah Connor',
       email: 'sarah.c@cyberdyne.org',
       avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
@@ -95,6 +97,7 @@ class InMemoryStore {
     const user3: UserData = {
       id: 'usr-client-3',
       phone: '+1 212 555 7890',
+      password: 'password123',
       name: 'David Miller',
       email: 'david@venturecap.co',
       avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
@@ -109,6 +112,7 @@ class InMemoryStore {
     const user4: UserData = {
       id: 'usr-biz-4',
       phone: '+1 650 555 9922',
+      password: 'password123',
       name: 'Artisan Coffee Roasters',
       email: 'orders@artisancoffee.shop',
       avatar: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=150',
