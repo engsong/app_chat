@@ -22,39 +22,8 @@ jobs:
           script_stop: true
           command_timeout: 30m
           script: |
-            echo "=========================================="
-            echo "🚀 Starting Automated Deployment on Server"
-            echo "=========================================="
-
-            APP_DIR="/var/www/chat-app"
-
-            # Create directory if it does not exist
-            if [ ! -d "$APP_DIR/.git" ]; then
-              echo "📁 Creating and cloning application repository into: $APP_DIR"
-              mkdir -p "$APP_DIR"
-              rm -rf "$APP_DIR"/* "$APP_DIR"/.[!.]*
-              git clone https://github.com/${{ github.repository }}.git "$APP_DIR"
-              cd "$APP_DIR"
-            else
-              cd "$APP_DIR"
-              echo "📥 Pulling latest updates from GitHub..."
-              git fetch --all
-              git reset --hard origin/${{ github.ref_name }}
-            fi
-
-            # Update Host Nginx Configuration if changed
-            if [ -f "./nginx/chat.on-excapp.app.conf" ]; then
-              echo "🛡️ Updating Nginx Anti-DDoS Configuration..."
-              cp ./nginx/chat.on-excapp.app.conf /etc/nginx/sites-available/chat.on-excapp.app.conf
-              ln -sf /etc/nginx/sites-available/chat.on-excapp.app.conf /etc/nginx/sites-enabled/
-              nginx -t && systemctl reload nginx || true
-            fi
-
-            echo "🐳 Building and starting Docker containers..."
-            docker compose up -d --build --remove-orphans
-
-            echo "🧹 Cleaning up old unused Docker images..."
-            docker image prune -f
-
-            echo "✅ Deployment completed successfully!"
-            docker compose ps
+            cd /var/www/chat-app
+            git fetch --all
+            git reset --hard origin/main
+            chmod +x ./deploy.sh
+            bash ./deploy.sh
