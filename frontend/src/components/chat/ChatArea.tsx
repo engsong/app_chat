@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Phone,
   Video,
-  MoreVertical,
-  Search,
   Paperclip,
   Smile,
   Mic,
@@ -14,7 +12,6 @@ import {
   CheckCheck,
   Play,
   Pause,
-  Users,
   ShieldCheck,
   X,
   ArrowLeft
@@ -60,18 +57,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [showQuickReplyPicker, setShowQuickReplyPicker] = useState(false);
   const [filteredQuickReplies, setFilteredQuickReplies] = useState<QuickReply[]>([]);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<any>(null);
 
-  // Auto-scroll to latest message
+  // Auto-scroll to latest message safely inside the container (prevents whole window from scrolling)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
   }, [messages, typingUsers]);
 
   // Determine chat header details
   const isGroup = chat.isGroup;
   const otherMember = chat.members?.find((m) => m.userId !== currentUser.id)?.user;
-  const title = isGroup ? chat.name : (otherMember?.businessName || otherMember?.name || 'Chat');
+  const title = isGroup ? chat.name : (otherMember?.businessName || otherMember?.name || 'User');
   const avatar = isGroup
     ? (chat.avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150')
     : (otherMember?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150');
@@ -125,17 +124,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const isOtherTyping = typingUsers.length > 0;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0b141a] relative overflow-hidden">
-      {/* 1. Chat Header */}
-      <div className="h-16 px-4 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between z-10">
-        <div className="flex items-center gap-2">
+    <div className="flex-1 flex flex-col h-full h-[100dvh] bg-[#0b141a] relative overflow-hidden">
+      {/* 1. Chat Header (Sticky & Never Shrinks) */}
+      <div className="h-16 flex-shrink-0 px-3 sm:px-4 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between z-20 sticky top-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
           {onBack && (
             <button
               onClick={onBack}
-              className="md:hidden p-1.5 -ml-1 text-gray-300 hover:text-white rounded-full hover:bg-[#374248] transition-colors"
+              className="md:hidden p-2 -ml-1 text-gray-200 hover:text-white rounded-full hover:bg-[#374248] active:bg-[#00a884]/30 transition-colors flex-shrink-0"
               title="Back to Chats"
+              aria-label="Back to Chats"
             >
-              <ArrowLeft className="w-5 h-5" />
+              <ArrowLeft className="w-6 h-6" />
             </button>
           )}
 
@@ -145,50 +145,50 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 onOpenBusinessProfile(otherMember);
               }
             }}
-            className="flex items-center gap-3 cursor-pointer group"
+            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group min-w-0"
           >
-          <div className="relative">
-            <img
-              src={avatar}
-              alt={title || ''}
-              className="w-10 h-10 rounded-full object-cover"
-            />
-            {!isGroup && otherMember?.isOnline && (
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#00a884] rounded-full border-2 border-[#202c33]" />
-            )}
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <h3 className="font-semibold text-sm text-white group-hover:text-[#00a884] transition-colors leading-tight">
-                {title}
-              </h3>
-              {isBusiness && (
-                <span title="Official Business Account">
-                  <ShieldCheck className="w-4 h-4 text-[#00a884]" />
-                </span>
+            <div className="relative flex-shrink-0">
+              <img
+                src={avatar}
+                alt={title || ''}
+                className="w-10 h-10 rounded-full object-cover"
+              />
+              {!isGroup && otherMember?.isOnline && (
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#00a884] rounded-full border-2 border-[#202c33]" />
               )}
             </div>
-            <p className="text-xs text-[#8696a0] leading-none mt-0.5">
-              {isOtherTyping ? (
-                <span className="text-[#00a884] font-medium">typing...</span>
-              ) : isGroup ? (
-                `${chat.members.length} participants`
-              ) : otherMember?.isOnline ? (
-                'Online'
-              ) : (
-                'Last seen recently'
-              )}
-            </p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 truncate">
+                <h3 className="font-semibold text-sm text-white group-hover:text-[#00a884] transition-colors leading-tight truncate">
+                  {title}
+                </h3>
+                {isBusiness && (
+                  <span title="Official Business Account" className="flex-shrink-0">
+                    <ShieldCheck className="w-4 h-4 text-[#00a884]" />
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-[#8696a0] leading-none mt-0.5 truncate">
+                {isOtherTyping ? (
+                  <span className="text-[#00a884] font-medium">typing...</span>
+                ) : isGroup ? (
+                  `${chat.members?.length || 0} participants`
+                ) : otherMember?.isOnline ? (
+                  'Online'
+                ) : (
+                  'Last seen recently'
+                )}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
         {/* Action Buttons: Voice Call, Video Call, Menu */}
-        <div className="flex items-center gap-2 text-[#aebac1]">
+        <div className="flex items-center gap-1 sm:gap-2 text-[#aebac1] flex-shrink-0">
           {/* Audio Call */}
           <button
             onClick={onStartAudioCall}
-            className="p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
+            className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
             title={isGroup ? 'Start Group Voice Call' : 'Start Voice Call'}
           >
             <Phone className="w-5 h-5" />
@@ -197,7 +197,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           {/* Video Call */}
           <button
             onClick={onStartVideoCall}
-            className="p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
+            className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
             title={isGroup ? 'Start Group Video Call' : 'Start Video Call'}
           >
             <Video className="w-5 h-5" />
@@ -207,130 +207,142 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           {currentUser.isBusiness && (
             <button
               onClick={onOpenCatalog}
-              className="p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
-              title="Open Catalog & Send Products"
+              className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
+              title="Business Catalog"
             >
               <ShoppingBag className="w-5 h-5" />
             </button>
           )}
-
-          <div className="w-[1px] h-6 bg-[#2a3942] mx-1" />
-
-          <button className="p-2.5 rounded-full hover:bg-[#374248] transition-colors">
-            <Search className="w-5 h-5" />
-          </button>
-          <button className="p-2.5 rounded-full hover:bg-[#374248] transition-colors">
-            <MoreVertical className="w-5 h-5" />
-          </button>
         </div>
       </div>
 
-      {/* 2. Messages List Body (WhatsApp Pattern Background) */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-2 whatsapp-chat-bg">
-        {/* End-to-end encryption banner */}
-        <div className="flex justify-center my-2">
-          <div className="bg-[#182229]/90 border border-[#2a3942] text-[#ffd279] text-[11px] px-3.5 py-1.5 rounded-lg max-w-md text-center shadow">
+      {/* 2. Messages List Body (Safe container scroll) */}
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto p-4 md:p-6 space-y-2 whatsapp-chat-bg overscroll-contain"
+      >
+        {/* Encryption Security Badge */}
+        <div className="flex justify-center mb-4">
+          <div className="bg-[#182229] border border-[#2a3942]/60 text-[#ffd279] text-xs px-4 py-2 rounded-xl max-w-sm text-center shadow-sm">
             🔒 Messages and calls are end-to-end encrypted. No one outside of this chat can read or listen.
           </div>
         </div>
 
+        {/* Message Bubbles */}
         {messages.map((msg) => {
           const isMe = msg.senderId === currentUser.id;
-          const msgTime = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-          // Parse metadata if present
-          let metadataObj: any = null;
-          if (msg.metadata) {
-            try {
-              metadataObj = JSON.parse(msg.metadata);
-            } catch (e) {
-              // Ignore
-            }
-          }
+          const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
           return (
             <div
               key={msg.id}
-              className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} my-1 animate-fade-in`}
+              className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-fade-in`}
             >
               <div
-                className={`max-w-[85%] sm:max-w-[70%] rounded-2xl px-3.5 py-2 shadow-md relative ${
+                className={`max-w-[85%] sm:max-w-md rounded-2xl p-3 shadow-md relative ${
                   isMe
                     ? 'bg-[#005c4b] text-white rounded-tr-none'
-                    : 'bg-[#202c33] text-[#e9edef] rounded-tl-none'
+                    : 'bg-[#202c33] text-white rounded-tl-none border border-[#2a3942]/50'
                 }`}
               >
-                {/* Group message sender name */}
-                {isGroup && !isMe && msg.sender && (
-                  <p className="text-xs font-semibold text-[#00a884] mb-1">
-                    {msg.sender.name}
+                {/* Sender Name in Group Chat */}
+                {isGroup && !isMe && (
+                  <p className="text-[11px] font-semibold text-[#00a884] mb-1">
+                    {msg.sender?.name || 'Member'}
                   </p>
                 )}
 
-                {/* 1. Product Card Message */}
-                {msg.type === 'product' && metadataObj && (
-                  <div className="mb-2 bg-[#111b21] rounded-xl overflow-hidden border border-black/20">
-                    <img
-                      src={metadataObj.imageUrl || 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500'}
-                      alt={metadataObj.name}
-                      className="w-full h-32 object-cover"
-                    />
-                    <div className="p-3">
-                      <div className="flex justify-between items-start gap-2">
-                        <h4 className="font-semibold text-xs text-white">{metadataObj.name}</h4>
-                        <span className="text-[#00a884] font-bold text-xs">${metadataObj.price}</span>
-                      </div>
-                      <p className="text-[11px] text-gray-400 mt-1 line-clamp-2">{metadataObj.description}</p>
-                      <button className="w-full mt-2 py-1 bg-[#00a884] hover:bg-[#008f6f] text-white text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1">
-                        <ShoppingBag className="w-3 h-3" /> View Product in Catalog
-                      </button>
-                    </div>
-                  </div>
+                {/* 1. Text Message */}
+                {msg.type === 'text' && (
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                    {msg.content}
+                  </p>
                 )}
 
-                {/* 2. Audio Voice Note Message */}
+                {/* 2. Audio / Voice Note Message */}
                 {msg.type === 'audio' && (
                   <div className="flex items-center gap-3 py-1 min-w-[200px]">
                     <button
-                      onClick={() => setPlayingAudioId(playingAudioId === msg.id ? null : msg.id)}
-                      className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white shadow"
+                      onClick={() => {
+                        if (playingAudioId === msg.id) {
+                          setPlayingAudioId(null);
+                        } else {
+                          setPlayingAudioId(msg.id);
+                          soundEffects.playMessagePop();
+                          setTimeout(() => setPlayingAudioId(null), 3000);
+                        }
+                      }}
+                      className="w-10 h-10 rounded-full bg-[#00a884] hover:bg-[#008f6f] flex items-center justify-center text-white flex-shrink-0 transition-transform active:scale-95 shadow-md"
                     >
-                      {playingAudioId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                      {playingAudioId === msg.id ? (
+                        <Pause className="w-5 h-5 fill-current" />
+                      ) : (
+                        <Play className="w-5 h-5 ml-0.5 fill-current" />
+                      )}
                     </button>
-                    <div className="flex-1">
-                      {/* Audio waveform simulation */}
-                      <div className="flex items-center gap-0.5 h-6">
-                        {[4, 8, 14, 18, 10, 16, 22, 12, 19, 8, 14, 6, 12, 18, 9, 14].map((h, i) => (
-                          <div
-                            key={i}
-                            className={`w-1 rounded-full ${
-                              playingAudioId === msg.id ? 'bg-[#25D366] soundwave-bar' : 'bg-gray-400'
-                            }`}
-                            style={{ height: `${h}px` }}
-                          />
-                        ))}
-                      </div>
-                      <span className="text-[10px] text-gray-300">
-                        {metadataObj?.duration ? `0:${metadataObj.duration}` : '0:18'}
-                      </span>
+
+                    {/* Audio Wave Visualizer Bars */}
+                    <div className="flex-1 flex items-center gap-0.5 h-6">
+                      {[12, 24, 16, 28, 20, 14, 22, 18, 26, 12, 20, 16, 24, 18].map((h, i) => (
+                        <div
+                          key={i}
+                          className={`w-1 rounded-full transition-all ${
+                            playingAudioId === msg.id
+                              ? 'bg-[#00a884] soundwave-bar'
+                              : 'bg-white/40'
+                          }`}
+                          style={{
+                            height: playingAudioId === msg.id ? undefined : `${h}px`,
+                            animationDelay: `${i * 0.08}s`,
+                          }}
+                        />
+                      ))}
                     </div>
+
+                    <span className="text-[11px] text-white/70 font-mono flex-shrink-0">
+                      0:{msg.metadata ? JSON.parse(msg.metadata).duration : '24'}
+                    </span>
                   </div>
                 )}
 
-                {/* 3. Text Message */}
-                {msg.type === 'text' && (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p>
+                {/* 3. Product Catalog Card Message */}
+                {msg.type === 'product' && msg.metadata && (
+                  (() => {
+                    try {
+                      const prod: Product = JSON.parse(msg.metadata);
+                      return (
+                        <div className="space-y-2 max-w-xs">
+                          {prod.imageUrl && (
+                            <img
+                              src={prod.imageUrl}
+                              alt={prod.name}
+                              className="w-full h-36 object-cover rounded-xl"
+                            />
+                          )}
+                          <div>
+                            <h5 className="font-semibold text-sm text-white">{prod.name}</h5>
+                            <p className="text-xs text-gray-300 line-clamp-2">{prod.description}</p>
+                            <p className="text-sm font-bold text-[#00a884] mt-1">
+                              ${prod.price.toFixed(2)} {prod.currency}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    } catch (e) {
+                      return <p className="text-sm">{msg.content}</p>;
+                    }
+                  })()
                 )}
 
-                {/* Timestamp & Status Checkmark */}
-                <div className="flex items-center justify-end gap-1 mt-1 text-[10px] text-[#8696a0]">
-                  <span>{msgTime}</span>
+                {/* Timestamp & Status Checkmarks */}
+                <div className="flex items-center justify-end gap-1 mt-1 text-[10px] text-white/60">
+                  <span>{time}</span>
                   {isMe && (
                     <span>
                       {msg.status === 'read' ? (
                         <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
                       ) : (
-                        <Check className="w-3.5 h-3.5 text-gray-400" />
+                        <Check className="w-3.5 h-3.5 text-white/70" />
                       )}
                     </span>
                   )}
@@ -339,8 +351,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             </div>
           );
         })}
-
-        <div ref={messagesEndRef} />
       </div>
 
       {/* 3. Quick Replies Autocomplete Popover */}
@@ -369,10 +379,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
       )}
 
-      {/* 4. Chat Input Bar */}
-      <div className="min-h-16 px-4 py-2 bg-[#202c33] border-t border-[#2a3942] flex items-center gap-2 z-20">
+      {/* 4. Chat Input Bar (Sticky & Never Shrinks) */}
+      <div className="min-h-16 flex-shrink-0 px-3 sm:px-4 py-2 bg-[#202c33] border-t border-[#2a3942] flex items-center gap-2 z-20 sticky bottom-0">
         {/* Attach Menu Toggle */}
-        <div className="relative">
+        <div className="relative flex-shrink-0">
           <button
             onClick={() => setShowAttachMenu(!showAttachMenu)}
             className="p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors"
@@ -415,7 +425,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           )}
         </div>
 
-        <button className="p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors">
+        <button className="hidden sm:flex p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors flex-shrink-0">
           <Smile className="w-5 h-5" />
         </button>
 
@@ -430,14 +440,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               handleSend();
             }
           }}
-          className="flex-1 bg-[#2a3942] text-white placeholder-[#8696a0] text-sm rounded-xl px-4 py-2.5 focus:outline-none focus:ring-1 focus:ring-[#00a884]"
+          className="flex-1 min-w-0 bg-[#2a3942] text-white placeholder-[#8696a0] text-sm rounded-xl px-3 sm:px-4 py-2.5 focus:outline-none focus:ring-1 focus:ring-[#00a884]"
         />
 
         {/* Send / Voice Note Button */}
         {inputText.trim() ? (
           <button
             onClick={handleSend}
-            className="w-10 h-10 rounded-full bg-[#00a884] hover:bg-[#008f6f] flex items-center justify-center text-white transition-all shadow-md active:scale-95"
+            className="w-10 h-10 rounded-full bg-[#00a884] hover:bg-[#008f6f] flex items-center justify-center text-white transition-all shadow-md active:scale-95 flex-shrink-0"
             title="Send Message"
           >
             <Send className="w-5 h-5 ml-0.5" />
@@ -445,7 +455,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         ) : (
           <button
             onClick={handleSendVoiceNote}
-            className="p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors"
+            className="p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors flex-shrink-0"
             title="Record & Send Voice Note"
           >
             <Mic className="w-5 h-5" />

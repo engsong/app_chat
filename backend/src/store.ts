@@ -290,6 +290,43 @@ class InMemoryStore {
       processedPhones.add(norm);
     }
 
+    // Clean up any test accounts with phone starting with usr-
+    for (const [uId, u] of Array.from(this.users.entries())) {
+      if (u.phone.startsWith('usr-') || u.name.startsWith('usr-')) {
+        this.users.delete(uId);
+        this.userContacts.delete(uId);
+      } else if (isPhoneMatch(u.phone, '02054245616')) {
+        // Ensure Engsong's name is set properly
+        if (u.name === '02054245616') {
+          u.name = 'Engsong';
+        }
+        u.about = 'Hey there! I am using IChat.';
+      }
+    }
+
+    // Resolve memberIds in chats and prune ghost chats
+    for (const [cId, chat] of Array.from(this.chats.entries())) {
+      chat.memberIds = chat.memberIds.map((mId) => {
+        if (this.users.has(mId)) return mId;
+        const byPhone = Array.from(this.users.values()).find((u) => u.phone === mId || isPhoneMatch(u.phone, mId));
+        if (byPhone) return byPhone.id;
+        return mId;
+      });
+
+      // Keep only members that exist in users
+      chat.memberIds = chat.memberIds.filter((mId) => this.users.has(mId));
+      if (chat.memberIds.length === 0) {
+        this.chats.delete(cId);
+      }
+    }
+
+    // Prune messages for deleted chats or unknown senders
+    for (const [mId, msg] of Array.from(this.messages.entries())) {
+      if (!this.chats.has(msg.chatId) || !this.users.has(msg.senderId)) {
+        this.messages.delete(mId);
+      }
+    }
+
     this.saveToFile();
   }
 

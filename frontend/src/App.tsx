@@ -599,7 +599,7 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="h-screen w-screen flex bg-[#111b21] text-white overflow-hidden font-sans">
+    <div className="h-screen h-[100dvh] w-screen flex bg-[#111b21] text-white overflow-hidden font-sans">
       {/* 1. Sidebar */}
       <Sidebar
         chats={chats}

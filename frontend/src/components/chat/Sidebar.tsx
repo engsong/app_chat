@@ -74,7 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <div
       className={`${
         activeChatId ? 'hidden md:flex' : 'flex'
-      } w-full md:w-96 lg:w-[420px] h-full flex-col bg-[#111b21] border-r border-[#202c33] z-20 flex-shrink-0`}
+      } w-full md:w-96 lg:w-[420px] h-full h-[100dvh] flex-col bg-[#111b21] border-r border-[#202c33] z-20 flex-shrink-0`}
     >
       {/* 1. IChat Top Bar */}
       <div className="h-16 px-4 bg-[#202c33] flex items-center justify-between border-b border-[#2a3942]">
