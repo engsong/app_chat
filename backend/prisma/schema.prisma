@@ -1,0 +1,217 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String            @id @default(uuid())
+  phone               String            @unique
+  name                String
+  email               String?           @unique
+  avatar              String?
+  about               String            @default("Hey there! I am using WhatsApp Business.")
+  isBusiness          Boolean           @default(false)
+  businessName        String?
+  businessCategory    String?
+  businessDescription String?
+  businessAddress     String?
+  businessHours       String?
+  businessWebsite     String?
+  isOnline            Boolean           @default(false)
+  lastSeen            DateTime          @default(now())
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  messagesSent        Message[]         @relation("SentMessages")
+  chatMemberships     ChatMember[]
+  callsInitiated      Call[]            @relation("CallerRelation")
+  callsReceived       Call[]            @relation("ReceiverRelation")
+  callParticipants    CallParticipant[]
+  products            Product[]
+  quickReplies        QuickReply[]
+  labels              Label[]
+  statuses            Status[]
+  statusViews         StatusView[]
+
+  @@index([phone])
+}
+
+model Chat {
+  id            String        @id @default(uuid())
+  isGroup       Boolean       @default(false)
+  name          String?
+  avatar        String?
+  description   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  lastMessageAt DateTime      @default(now())
+
+  members       ChatMember[]
+  messages      Message[]
+  calls         Call[]
+  labels        ChatLabel[]
+
+  @@index([lastMessageAt])
+}
+
+model ChatMember {
+  id       String   @id @default(uuid())
+  chatId   String
+  userId   String
+  role     String   @default("member") // 'admin' | 'member'
+  joinedAt DateTime @default(now())
+
+  chat     Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+}
+
+model Message {
+  id        String           @id @default(uuid())
+  chatId    String
+  senderId  String
+  type      String           @default("text") // 'text' | 'image' | 'video' | 'audio' | 'document' | 'product'
+  content   String
+  mediaUrl  String?
+  metadata  String?          // JSON string for extra info like voice duration or product details
+  status    String           @default("sent") // 'sent' | 'delivered' | 'read'
+  createdAt DateTime         @default(now())
+
+  chat      Chat             @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender    User             @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receipts  MessageReceipt[]
+
+  @@index([chatId, createdAt])
+}
+
+model MessageReceipt {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  status    String   // 'delivered' | 'read'
+  timestamp DateTime @default(now())
+
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, status])
+}
+
+model Call {
+  id           String            @id @default(uuid())
+  chatId       String?
+  callerId     String
+  receiverId   String?           // Null for group calls
+  isGroup      Boolean           @default(false)
+  type         String            // 'voice' | 'video'
+  status       String            @default("ringing") // 'ringing' | 'connected' | 'completed' | 'missed' | 'declined'
+  startedAt    DateTime          @default(now())
+  endedAt      DateTime?
+  duration     Int?              // in seconds
+
+  chat         Chat?             @relation(fields: [chatId], references: [id], onDelete: SetNull)
+  caller       User              @relation("CallerRelation", fields: [callerId], references: [id], onDelete: Cascade)
+  receiver     User?             @relation("ReceiverRelation", fields: [receiverId], references: [id], onDelete: SetNull)
+  participants CallParticipant[]
+
+  @@index([callerId])
+  @@index([receiverId])
+}
+
+model CallParticipant {
+  id       String    @id @default(uuid())
+  callId   String
+  userId   String
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+
+  call     Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, userId])
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String
+  description String?
+  price       Float
+  currency    String   @default("USD")
+  imageUrl    String?
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model QuickReply {
+  id        String   @id @default(uuid())
+  userId    String
+  shortcut  String   // e.g., "/thanks"
+  message   String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, shortcut])
+}
+
+model Label {
+  id        String      @id @default(uuid())
+  userId    String
+  name      String
+  color     String      // hex color code e.g. '#25D366'
+  createdAt DateTime    @default(now())
+
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chats     ChatLabel[]
+
+  @@unique([userId, name])
+}
+
+model ChatLabel {
+  id      String @id @default(uuid())
+  chatId  String
+  labelId String
+
+  chat    Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, labelId])
+}
+
+model Status {
+  id              String       @id @default(uuid())
+  userId          String
+  type            String       @default("text") // 'text' | 'image' | 'video'
+  mediaUrl        String?
+  caption         String?
+  backgroundColor String?      @default("#075E54")
+  expiresAt       DateTime
+  createdAt       DateTime     @default(now())
+
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  views           StatusView[]
+
+  @@index([userId, expiresAt])
+}
+
+model StatusView {
+  id       String   @id @default(uuid())
+  statusId String
+  viewerId String
+  viewedAt DateTime @default(now())
+
+  status   Status   @relation(fields: [statusId], references: [id], onDelete: Cascade)
+  viewer   User     @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@unique([statusId, viewerId])
+}

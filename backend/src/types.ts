@@ -1,0 +1,56 @@
+export interface UserData {
+  id: string;
+  phone: string;
+  name: string;
+  email?: string;
+  avatar?: string;
+  about: string;
+  isBusiness: boolean;
+  businessName?: string;
+  businessCategory?: string;
+  businessDescription?: string;
+  businessAddress?: string;
+  businessHours?: string;
+  businessWebsite?: string;
+  isOnline: boolean;
+  lastSeen: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface MessageData {
+  id: string;
+  chatId: string;
+  senderId: string;
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'product';
+  content: string;
+  mediaUrl?: string;
+  metadata?: string;
+  status: 'sent' | 'delivered' | 'read';
+  createdAt: Date;
+}
+
+export interface ChatData {
+  id: string;
+  isGroup: boolean;
+  name?: string;
+  avatar?: string;
+  description?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  lastMessageAt: Date;
+  memberIds: string[];
+}
+
+export interface CallData {
+  id: string;
+  chatId?: string;
+  callerId: string;
+  receiverId?: string;
+  isGroup: boolean;
+  type: 'voice' | 'video';
+  status: 'ringing' | 'connected' | 'completed' | 'missed' | 'declined';
+  startedAt: Date;
+  endedAt?: Date;
+  duration?: number;
+}
