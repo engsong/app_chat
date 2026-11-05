@@ -124,6 +124,13 @@ apiRouter.post('/auth/login', (req, res) => {
     return res.status(401).json({ error: 'Incorrect password. Please try again.' });
   }
 
+  // If user was an auto-created contact stub without a password, set it on initial login
+  if (!user.password && password) {
+    user.password = password;
+    user.updatedAt = new Date();
+    store.saveToFile();
+  }
+
   user.isOnline = true;
   user.lastSeen = new Date();
 
