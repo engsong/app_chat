@@ -12,7 +12,7 @@ COPY tailwind.config.js ./
 COPY postcss.config.js ./
 COPY index.html ./
 
-RUN npm ci --no-audit
+RUN npm install --no-audit
 
 COPY src/ ./src/
 

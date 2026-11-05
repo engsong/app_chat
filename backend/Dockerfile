@@ -8,7 +8,7 @@ WORKDIR /app
 # Install dependencies
 COPY package*.json ./
 COPY tsconfig.json ./
-RUN npm ci --no-audit
+RUN npm install --no-audit
 
 # Copy source code and Prisma schema
 COPY src/ ./src/
@@ -30,7 +30,7 @@ ENV PORT=5000
 
 # Install production dependencies only
 COPY package*.json ./
-RUN npm ci --only=production --no-audit
+RUN npm install --omit=dev --no-audit
 
 # Copy compiled files and prisma schema from builder
 COPY --from=builder /app/dist ./dist
