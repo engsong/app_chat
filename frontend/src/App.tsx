@@ -19,6 +19,7 @@ export const App: React.FC = () => {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [contacts, setContacts] = useState<User[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -91,11 +92,24 @@ export const App: React.FC = () => {
     fetchInitialData();
   }, []);
 
-  // 3. Register user with Socket when currentUser changes & load user's chats
+  const fetchContacts = async (userId: string) => {
+    try {
+      const res = await fetch(`/api/contacts?userId=${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setContacts(data);
+      }
+    } catch (err) {
+      console.error('Error fetching contacts:', err);
+    }
+  };
+
+  // 3. Register user with Socket when currentUser changes & load user's chats & contacts
   useEffect(() => {
     if (!socket || !currentUser) return;
 
     socket.emit('user_connected', currentUser.id);
+    fetchContacts(currentUser.id);
 
     const loadUserChats = async () => {
       try {
@@ -394,6 +408,46 @@ export const App: React.FC = () => {
     }
   };
 
+  // Select Chat handler with instant unread count clearing
+  const handleSelectChat = (chatId: string) => {
+    setActiveChatId(chatId);
+    // Immediately clear unreadCount locally so badge clears immediately
+    setChats((prev) =>
+      prev.map((c) => (c.id === chatId ? { ...c, unreadCount: 0 } : c))
+    );
+    if (currentUser) {
+      fetch(`/api/chats/${chatId}/read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id }),
+      }).catch(() => {});
+
+      if (socket) {
+        socket.emit('mark_messages_read', { chatId, userId: currentUser.id });
+      }
+    }
+  };
+
+  // Add Contact handler by Phone, Name, or ID
+  const handleAddContact = async (query: string): Promise<{ success: boolean; message?: string }> => {
+    if (!currentUser) return { success: false, message: 'Please log in first' };
+    try {
+      const res = await fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id, query }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, message: data.error || 'User not found' };
+      }
+      await fetchContacts(currentUser.id);
+      return { success: true, message: `Added "${data.contact.name}" to your contacts!` };
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Failed to add contact' };
+    }
+  };
+
   // Send Catalog Product Card directly into active chat
   const handleSendProductToChat = (product: Product) => {
     handleSendMessage(`Catalog item: ${product.name}`, 'product', JSON.stringify(product));
@@ -416,10 +470,8 @@ export const App: React.FC = () => {
       <Sidebar
         chats={chats}
         activeChatId={activeChatId}
-        onSelectChat={(id) => setActiveChatId(id)}
+        onSelectChat={handleSelectChat}
         currentUser={currentUser}
-        allUsers={allUsers}
-        onSwitchUser={handleSwitchUser}
         onOpenNewChat={() => setShowNewChat(true)}
         onOpenStatus={() => setShowStatus(true)}
         onOpenCatalog={() => setShowCatalog(true)}
@@ -530,6 +582,7 @@ export const App: React.FC = () => {
           onClose={() => setProfileModalUser(null)}
           user={profileModalUser}
           isCurrentUser={profileModalUser.id === currentUser.id}
+          onLogout={handleLogout}
           onUpdateProfile={(updated) => {
             setCurrentUser({ ...currentUser, ...updated });
             setAllUsers((prev) =>
@@ -563,10 +616,11 @@ export const App: React.FC = () => {
       <NewChatModal
         isOpen={showNewChat}
         onClose={() => setShowNewChat(false)}
-        users={allUsers}
+        contacts={contacts}
         currentUserId={currentUser.id}
         onStartDirectChat={handleStartDirectChat}
         onCreateGroupChat={handleCreateGroupChat}
+        onAddContact={handleAddContact}
       />
     </div>
   );

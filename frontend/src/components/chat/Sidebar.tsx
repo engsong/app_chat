@@ -10,7 +10,6 @@ import {
   ShieldCheck,
   Check,
   CheckCheck,
-  ArrowRightLeft,
   X,
   LogOut
 } from 'lucide-react';
@@ -21,8 +20,6 @@ interface SidebarProps {
   activeChatId: string | null;
   onSelectChat: (chatId: string) => void;
   currentUser: User;
-  allUsers: User[];
-  onSwitchUser: (user: User) => void;
   onOpenNewChat: () => void;
   onOpenStatus: () => void;
   onOpenCatalog: () => void;
@@ -39,8 +36,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeChatId,
   onSelectChat,
   currentUser,
-  allUsers,
-  onSwitchUser,
   onOpenNewChat,
   onOpenStatus,
   onOpenCatalog,
@@ -52,7 +47,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   labels,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [showUserSwitcher, setShowUserSwitcher] = useState(false);
 
   // Filter chats by search and label
   const filteredChats = chats.filter((c) => {
@@ -82,91 +76,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <div className="w-full md:w-96 lg:w-[420px] h-full flex flex-col bg-[#111b21] border-r border-[#202c33] z-20 flex-shrink-0">
       {/* 1. WhatsApp Top Bar */}
       <div className="h-16 px-4 bg-[#202c33] flex items-center justify-between border-b border-[#2a3942]">
-        {/* Current User Profile Switcher */}
-        <div className="relative">
-          <div
-            onClick={() => setShowUserSwitcher(!showUserSwitcher)}
-            className="flex items-center gap-2 cursor-pointer group"
-            title="Click to switch profile (Business / Client demo)"
-          >
-            <div className="relative">
-              <img
-                src={currentUser.avatar || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=150'}
-                alt={currentUser.name}
-                className="w-10 h-10 rounded-full object-cover ring-2 ring-transparent group-hover:ring-[#00a884] transition-all"
-              />
-              {currentUser.isBusiness && (
-                <span className="absolute -bottom-0.5 -right-0.5 p-0.5 bg-[#00a884] rounded-full text-white">
-                  <ShieldCheck className="w-3 h-3" />
-                </span>
-              )}
-            </div>
-            <div className="hidden sm:block">
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-semibold text-white group-hover:text-[#00a884]">
-                  {currentUser.name}
-                </span>
-                <ArrowRightLeft className="w-3 h-3 text-[#8696a0]" />
-              </div>
-              <span className="text-[10px] text-[#00a884] font-medium block">
-                {currentUser.isBusiness ? 'Business Profile' : 'Personal Account'}
+        {/* Current User Profile - Click opens Profile Info */}
+        <div
+          onClick={onOpenMyProfile}
+          className="flex items-center gap-2.5 cursor-pointer group hover:opacity-90 transition-opacity"
+          title="Click to view profile info"
+        >
+          <div className="relative">
+            <img
+              src={currentUser.avatar || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=150'}
+              alt={currentUser.name}
+              className="w-10 h-10 rounded-full object-cover ring-2 ring-transparent group-hover:ring-[#00a884] transition-all"
+            />
+            {currentUser.isBusiness && (
+              <span className="absolute -bottom-0.5 -right-0.5 p-0.5 bg-[#00a884] rounded-full text-white">
+                <ShieldCheck className="w-3 h-3" />
+              </span>
+            )}
+          </div>
+          <div className="hidden sm:block">
+            <div className="flex items-center gap-1">
+              <span className="text-xs font-semibold text-white group-hover:text-[#00a884] transition-colors">
+                {currentUser.name}
               </span>
             </div>
+            <span className="text-[10px] text-[#00a884] font-medium block">
+              {currentUser.isBusiness ? 'Business Profile' : 'Personal Account'}
+            </span>
           </div>
-
-          {/* Quick User Switcher Menu */}
-          {showUserSwitcher && (
-            <div className="absolute top-12 left-0 w-64 bg-[#202c33] border border-[#2a3942] rounded-2xl shadow-2xl p-2 z-40 animate-scale-up">
-              <p className="text-[11px] font-semibold text-gray-400 px-3 py-1.5 uppercase tracking-wider">
-                Switch Active User
-              </p>
-              <div className="space-y-1">
-                {allUsers.map((u) => (
-                  <button
-                    key={u.id}
-                    onClick={() => {
-                      onSwitchUser(u);
-                      setShowUserSwitcher(false);
-                    }}
-                    className={`w-full p-2 rounded-xl flex items-center justify-between text-left text-xs transition-colors ${
-                      u.id === currentUser.id ? 'bg-[#00a884]/20 text-[#00a884]' : 'hover:bg-[#111b21] text-white'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <img src={u.avatar} alt="" className="w-7 h-7 rounded-full object-cover" />
-                      <div>
-                        <p className="font-medium leading-tight">{u.name}</p>
-                        <p className="text-[10px] text-gray-400">
-                          {u.isBusiness ? '🏢 Business' : '👤 Client'}
-                        </p>
-                      </div>
-                    </div>
-                    {u.id === currentUser.id && <Check className="w-4 h-4 text-[#00a884]" />}
-                  </button>
-                ))}
-              </div>
-              <div className="border-t border-[#2a3942] mt-2 pt-2 space-y-1">
-                <button
-                  onClick={() => {
-                    onOpenMyProfile();
-                    setShowUserSwitcher(false);
-                  }}
-                  className="w-full py-1.5 px-3 rounded-lg bg-[#111b21] hover:bg-[#2a3942] text-xs text-center text-[#00a884] font-medium"
-                >
-                  Edit Business Profile Info
-                </button>
-                <button
-                  onClick={() => {
-                    setShowUserSwitcher(false);
-                    onLogout();
-                  }}
-                  className="w-full py-1.5 px-3 rounded-lg hover:bg-red-500/10 text-xs text-center text-red-400 font-medium flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <LogOut className="w-3.5 h-3.5" /> Sign Out / Switch Account
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Action Icons */}
@@ -207,6 +144,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title="New Chat or Group"
           >
             <MessageSquare className="w-5 h-5" />
+          </button>
+
+          {/* Sign Out */}
+          <button
+            onClick={onLogout}
+            className="p-2 rounded-full hover:bg-[#374248] hover:text-red-400 transition-colors"
+            title="Sign Out"
+          >
+            <LogOut className="w-5 h-5" />
           </button>
         </div>
       </div>

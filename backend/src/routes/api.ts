@@ -65,6 +65,7 @@ apiRouter.post('/auth/register', (req, res) => {
   };
 
   store.users.set(newUser.id, newUser);
+  store.userContacts.set(newUser.id, new Set());
   res.status(201).json({ success: true, user: newUser });
 });
 
@@ -133,6 +134,71 @@ apiRouter.put('/users/:id', (req, res) => {
   user.updatedAt = new Date();
 
   res.json({ success: true, user });
+});
+
+// Contacts Management (Only show added contacts)
+apiRouter.get('/contacts', (req, res) => {
+  const userId = req.query.userId as string;
+  if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+  const contactIds = store.userContacts.get(userId) || new Set();
+  const contacts = Array.from(contactIds)
+    .map((id) => store.users.get(id))
+    .filter((u): u is UserData => Boolean(u));
+
+  res.json(contacts);
+});
+
+// Add contact by Phone, Name, or User ID
+apiRouter.post('/contacts', (req, res) => {
+  const { userId, query } = req.body;
+  if (!userId || !query) {
+    return res.status(400).json({ error: 'userId and query (Phone number, Name, or User ID) are required.' });
+  }
+
+  const cleanQuery = query.trim().toLowerCase();
+  const cleanPhoneQuery = cleanQuery.replace(/[^0-9+]/g, '');
+
+  const targetUser = Array.from(store.users.values()).find((u) => {
+    if (u.id === userId) return false;
+    if (u.id.toLowerCase() === cleanQuery) return true;
+    if (u.name.toLowerCase() === cleanQuery || u.name.toLowerCase().includes(cleanQuery)) return true;
+    if (u.phone.toLowerCase() === cleanQuery) return true;
+    const cleanUserPhone = u.phone.replace(/[^0-9+]/g, '');
+    if (cleanPhoneQuery && cleanUserPhone.includes(cleanPhoneQuery)) return true;
+    return false;
+  });
+
+  if (!targetUser) {
+    return res.status(404).json({ error: `No user found matching "${query}". Please check the phone number, user ID, or name.` });
+  }
+
+  if (!store.userContacts.has(userId)) {
+    store.userContacts.set(userId, new Set());
+  }
+  store.userContacts.get(userId)!.add(targetUser.id);
+
+  // Reciprocally link contact
+  if (!store.userContacts.has(targetUser.id)) {
+    store.userContacts.set(targetUser.id, new Set());
+  }
+  store.userContacts.get(targetUser.id)!.add(userId);
+
+  res.json({ success: true, contact: targetUser });
+});
+
+// Mark chat messages as read
+apiRouter.post('/chats/:id/read', (req, res) => {
+  const chatId = req.params.id;
+  const { userId } = req.body;
+
+  for (const [_, msg] of store.messages.entries()) {
+    if (msg.chatId === chatId && msg.senderId !== userId) {
+      msg.status = 'read';
+    }
+  }
+
+  res.json({ success: true });
 });
 
 // ==========================================

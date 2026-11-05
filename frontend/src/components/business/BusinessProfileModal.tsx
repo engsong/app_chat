@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Building2, MapPin, Clock, Globe, ShieldCheck, Mail, Phone, Edit2, Check } from 'lucide-react';
+import { X, Building2, MapPin, Clock, Globe, ShieldCheck, Mail, Phone, Edit2, Check, Copy, LogOut } from 'lucide-react';
 import { User } from '../../types/index.js';
 
 interface BusinessProfileModalProps {
@@ -8,6 +8,7 @@ interface BusinessProfileModalProps {
   user: User;
   isCurrentUser: boolean;
   onUpdateProfile?: (updated: Partial<User>) => void;
+  onLogout?: () => void;
 }
 
 export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
@@ -16,8 +17,10 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
   user,
   isCurrentUser,
   onUpdateProfile,
+  onLogout,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
   const [businessName, setBusinessName] = useState(user.businessName || user.name);
   const [businessCategory, setBusinessCategory] = useState(user.businessCategory || 'Retail & Shopping');
   const [businessDescription, setBusinessDescription] = useState(user.businessDescription || user.about);
@@ -134,6 +137,25 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
             )}
           </div>
 
+          {/* User ID Row (for adding as contact) */}
+          <div className="flex items-center justify-between bg-[#111b21] p-3 rounded-xl border border-[#2a3942] text-xs">
+            <div>
+              <span className="text-[10px] text-gray-400 block uppercase font-medium">User ID (Share to add contact)</span>
+              <span className="text-gray-200 font-mono text-xs select-all">{user.id}</span>
+            </div>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(user.id);
+                setCopiedId(true);
+                setTimeout(() => setCopiedId(false), 2000);
+              }}
+              className="px-2.5 py-1 bg-[#202c33] hover:bg-[#2a3942] rounded text-[11px] text-[#00a884] font-medium transition-colors flex items-center gap-1.5"
+            >
+              {copiedId ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copiedId ? 'Copied' : 'Copy ID'}
+            </button>
+          </div>
+
           {/* Business Details List */}
           <div className="space-y-3 bg-[#111b21] p-4 rounded-xl border border-[#2a3942] text-xs">
             {/* Phone */}
@@ -194,6 +216,21 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
               )}
             </div>
           </div>
+
+          {/* Sign Out Button (when viewing current user's profile) */}
+          {isCurrentUser && onLogout && (
+            <div className="pt-2">
+              <button
+                onClick={() => {
+                  onClose();
+                  onLogout();
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold flex items-center justify-center gap-2 transition-colors border border-red-500/20"
+              >
+                <LogOut className="w-4 h-4" /> Sign Out
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

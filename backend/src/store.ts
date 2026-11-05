@@ -51,6 +51,7 @@ class InMemoryStore {
   public chatLabels: Map<string, Set<string>> = new Map(); // chatId -> Set<labelId>
   public statuses: Map<string, StatusData> = new Map();
   public calls: Map<string, CallData> = new Map();
+  public userContacts: Map<string, Set<string>> = new Map(); // userId -> Set<contactUserId>
 
   constructor() {
     this.seedInitialData();
@@ -134,6 +135,12 @@ class InMemoryStore {
     this.users.set(user2.id, user2);
     this.users.set(user3.id, user3);
     this.users.set(user4.id, user4);
+
+    // Initial contacts
+    this.userContacts.set(user1.id, new Set([user2.id, user3.id, user4.id]));
+    this.userContacts.set(user2.id, new Set([user1.id, user3.id]));
+    this.userContacts.set(user3.id, new Set([user1.id, user2.id]));
+    this.userContacts.set(user4.id, new Set([user1.id]));
 
     // Products for Nexus Electronics
     const prod1: ProductData = {
