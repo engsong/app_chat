@@ -151,32 +151,85 @@ export const App: React.FC = () => {
 
   // 5. Socket listeners for real-time messages, typing, receipts
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !currentUser) return;
 
     const handleNewMessage = (data: { message: Message; chat: Chat }) => {
       // Append if in current chat
       if (data.message.chatId === activeChatId) {
-        setMessages((prev) => [...prev, data.message]);
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === data.message.id)) return prev;
+          return [...prev, data.message];
+        });
+
+        // Automatically mark as read if received while looking at active chat
+        if (data.message.senderId !== currentUser.id) {
+          socket.emit('mark_messages_read', { chatId: activeChatId, userId: currentUser.id });
+          fetch(`/api/chats/${activeChatId}/read`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUser.id }),
+          }).catch(() => {});
+        }
       }
 
-      // Update chats list lastMessage
+      // Update chats list (or add new chat if not yet in list)
       setChats((prev) => {
-        const updated = prev.map((c) => {
-          if (c.id === data.message.chatId) {
-            return {
-              ...c,
+        const exists = prev.some((c) => c.id === data.message.chatId);
+        let updated: Chat[];
+
+        if (!exists) {
+          // Prepend new incoming chat
+          updated = [
+            {
+              ...data.chat,
               lastMessage: data.message,
               lastMessageAt: data.message.createdAt,
-              unreadCount:
-                data.message.chatId !== activeChatId && data.message.senderId !== currentUser?.id
-                  ? (c.unreadCount || 0) + 1
-                  : c.unreadCount,
+              unreadCount: data.message.senderId !== currentUser.id ? 1 : 0,
+            },
+            ...prev,
+          ];
+        } else {
+          updated = prev.map((c) => {
+            if (c.id === data.message.chatId) {
+              return {
+                ...c,
+                lastMessage: data.message,
+                lastMessageAt: data.message.createdAt,
+                unreadCount:
+                  data.message.chatId !== activeChatId && data.message.senderId !== currentUser.id
+                    ? (c.unreadCount || 0) + 1
+                    : data.message.chatId === activeChatId
+                    ? 0
+                    : c.unreadCount,
+              };
+            }
+            return c;
+          });
+        }
+        return updated.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+      });
+    };
+
+    const handleMessagesMarkedRead = (data: { chatId: string; userId: string }) => {
+      // If messages in current chat were marked read by someone else, update to read ticks
+      if (data.chatId === activeChatId) {
+        setMessages((prev) =>
+          prev.map((m) => (m.status !== 'read' ? { ...m, status: 'read' } : m))
+        );
+      }
+      // Update sidebar chat last message status
+      setChats((prev) =>
+        prev.map((c) => {
+          if (c.id === data.chatId) {
+            return {
+              ...c,
+              unreadCount: data.userId === currentUser.id ? 0 : c.unreadCount,
+              lastMessage: c.lastMessage ? { ...c.lastMessage, status: 'read' } : c.lastMessage,
             };
           }
           return c;
-        });
-        return updated.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
-      });
+        })
+      );
     };
 
     const handleUserTyping = (data: { chatId: string; userId: string }) => {
@@ -206,17 +259,49 @@ export const App: React.FC = () => {
     };
 
     socket.on('new_message', handleNewMessage);
+    socket.on('messages_marked_read', handleMessagesMarkedRead);
     socket.on('user_typing', handleUserTyping);
     socket.on('user_stopped_typing', handleUserStoppedTyping);
     socket.on('user_status_changed', handleUserStatusChanged);
 
     return () => {
       socket.off('new_message', handleNewMessage);
+      socket.off('messages_marked_read', handleMessagesMarkedRead);
       socket.off('user_typing', handleUserTyping);
       socket.off('user_stopped_typing', handleUserStoppedTyping);
       socket.off('user_status_changed', handleUserStatusChanged);
     };
   }, [socket, activeChatId, currentUser]);
+
+  // Periodic background refresh for chats & messages (guarantees fresh data even if mobile tab slept)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/chats?userId=${currentUser.id}`);
+        if (res.ok) {
+          const freshChats: Chat[] = await res.json();
+          setChats((prev) => {
+            // Keep local unreadCount = 0 for activeChatId
+            return freshChats.map((fc) => (fc.id === activeChatId ? { ...fc, unreadCount: 0 } : fc));
+          });
+        }
+
+        if (activeChatId) {
+          const mRes = await fetch(`/api/chats/${activeChatId}/messages`);
+          if (mRes.ok) {
+            const freshMsgs: Message[] = await mRes.json();
+            setMessages(freshMsgs);
+          }
+        }
+      } catch (e) {
+        // Ignore network hiccups
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [currentUser, activeChatId]);
 
   // Send message handler
   const handleSendMessage = (
@@ -442,6 +527,11 @@ export const App: React.FC = () => {
         return { success: false, message: data.error || 'User not found' };
       }
       await fetchContacts(currentUser.id);
+      const userChats: Chat[] = await fetch(`/api/chats?userId=${currentUser.id}`).then((r) => r.json());
+      setChats(userChats);
+      if (data.chat) {
+        setActiveChatId(data.chat.id);
+      }
       return { success: true, message: `Added "${data.contact.name}" to your contacts!` };
     } catch (err: any) {
       return { success: false, message: err.message || 'Failed to add contact' };
@@ -499,6 +589,7 @@ export const App: React.FC = () => {
           typingUsers={typingUsers}
           onStartTyping={() => socket?.emit('typing_start', { chatId: activeChat.id, userId: currentUser.id })}
           onStopTyping={() => socket?.emit('typing_stop', { chatId: activeChat.id, userId: currentUser.id })}
+          onBack={() => setActiveChatId(null)}
         />
       ) : (
         <div className="hidden md:flex flex-1 flex-col items-center justify-center bg-[#222e35] border-b-[6px] border-[#00a884] p-8 text-center">

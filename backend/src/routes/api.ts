@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { store } from '../store.js';
-import { UserData } from '../types.js';
+import { UserData, ChatData } from '../types.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export const apiRouter = Router();
@@ -66,6 +66,7 @@ apiRouter.post('/auth/register', (req, res) => {
 
   store.users.set(newUser.id, newUser);
   store.userContacts.set(newUser.id, new Set());
+  store.saveToFile();
   res.status(201).json({ success: true, user: newUser });
 });
 
@@ -132,6 +133,7 @@ apiRouter.put('/users/:id', (req, res) => {
   if (businessHours !== undefined) user.businessHours = businessHours;
   if (businessWebsite !== undefined) user.businessWebsite = businessWebsite;
   user.updatedAt = new Date();
+  store.saveToFile();
 
   res.json({ success: true, user });
 });
@@ -157,15 +159,26 @@ apiRouter.post('/contacts', (req, res) => {
   }
 
   const cleanQuery = query.trim().toLowerCase();
-  const cleanPhoneQuery = cleanQuery.replace(/[^0-9+]/g, '');
+  const cleanDigits = query.replace(/\D/g, '');
+
+  const currentUser = store.users.get(userId);
+  if (
+    userId.toLowerCase() === cleanQuery ||
+    (currentUser && cleanDigits.length >= 4 && currentUser.phone.replace(/\D/g, '').includes(cleanDigits))
+  ) {
+    return res.status(400).json({ error: "You cannot add yourself as a contact. Please enter another user's phone number, name, or ID." });
+  }
 
   const targetUser = Array.from(store.users.values()).find((u) => {
     if (u.id === userId) return false;
-    if (u.id.toLowerCase() === cleanQuery) return true;
-    if (u.name.toLowerCase() === cleanQuery || u.name.toLowerCase().includes(cleanQuery)) return true;
-    if (u.phone.toLowerCase() === cleanQuery) return true;
-    const cleanUserPhone = u.phone.replace(/[^0-9+]/g, '');
-    if (cleanPhoneQuery && cleanUserPhone.includes(cleanPhoneQuery)) return true;
+    // 1. By exact ID or substring ID
+    if (u.id.toLowerCase() === cleanQuery || u.id.toLowerCase().includes(cleanQuery)) return true;
+    // 2. By Phone (digits only comparison)
+    const userPhoneDigits = u.phone.replace(/\D/g, '');
+    if (cleanDigits.length >= 3 && (userPhoneDigits.includes(cleanDigits) || cleanDigits.includes(userPhoneDigits))) return true;
+    // 3. By Name or Business Name
+    if (u.name.toLowerCase().includes(cleanQuery)) return true;
+    if (u.businessName && u.businessName.toLowerCase().includes(cleanQuery)) return true;
     return false;
   });
 
@@ -184,7 +197,27 @@ apiRouter.post('/contacts', (req, res) => {
   }
   store.userContacts.get(targetUser.id)!.add(userId);
 
-  res.json({ success: true, contact: targetUser });
+  // Automatically ensure a direct chat exists so user can message immediately
+  let directChat = Array.from(store.chats.values()).find(
+    (c) => !c.isGroup && c.memberIds.includes(userId) && c.memberIds.includes(targetUser.id)
+  );
+
+  if (!directChat) {
+    const newChat: ChatData = {
+      id: `chat-${uuidv4()}`,
+      isGroup: false,
+      memberIds: [userId, targetUser.id],
+      lastMessageAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    store.chats.set(newChat.id, newChat);
+    directChat = newChat;
+  }
+
+  store.saveToFile();
+
+  res.json({ success: true, contact: targetUser, chat: directChat });
 });
 
 // Mark chat messages as read
@@ -198,6 +231,7 @@ apiRouter.post('/chats/:id/read', (req, res) => {
     }
   }
 
+  store.saveToFile();
   res.json({ success: true });
 });
 

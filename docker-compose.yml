@@ -39,6 +39,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-SuperSecretDBPass2026!}@whatsapp_postgres:5432/${POSTGRES_DB:-whatsapp_business}?schema=public
       JWT_SECRET: ${JWT_SECRET:-ultra_secure_whatsapp_jwt_token_2026_super_key}
       CLIENT_URL: https://chat.on-excapp.app
+    volumes:
+      - backend_data:/app/data
     depends_on:
       whatsapp_postgres:
         condition: service_healthy
@@ -65,4 +67,6 @@ networks:
 
 volumes:
   postgres_data:
+    driver: local
+  backend_data:
     driver: local

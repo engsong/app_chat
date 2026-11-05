@@ -71,6 +71,7 @@ export function setupSocketHandlers(io: Server) {
 
       store.messages.set(newMessage.id, newMessage);
       chat.lastMessageAt = new Date();
+      store.saveToFile();
 
       // Emit to all members in this chat
       chat.memberIds.forEach((memberId) => {
@@ -123,6 +124,7 @@ export function setupSocketHandlers(io: Server) {
           msg.status = 'read';
         }
       }
+      store.saveToFile();
 
       chat.memberIds.forEach((mId) => {
         const sockets = userSocketMap.get(mId);

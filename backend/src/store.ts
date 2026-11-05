@@ -1,5 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs';
+import path from 'path';
 import { UserData, MessageData, ChatData, CallData } from './types.js';
+
+const DATA_DIR = process.env.DATA_DIR || path.resolve(process.cwd(), 'data');
+const STORE_FILE = path.join(DATA_DIR, 'store.json');
 
 export interface ProductData {
   id: string;
@@ -54,7 +59,121 @@ class InMemoryStore {
   public userContacts: Map<string, Set<string>> = new Map(); // userId -> Set<contactUserId>
 
   constructor() {
-    this.seedInitialData();
+    if (!this.loadFromFile()) {
+      this.seedInitialData();
+      this.saveToFile();
+    }
+  }
+
+  public saveToFile() {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      const data = {
+        users: Array.from(this.users.entries()),
+        chats: Array.from(this.chats.entries()),
+        messages: Array.from(this.messages.entries()),
+        products: Array.from(this.products.entries()),
+        quickReplies: Array.from(this.quickReplies.entries()),
+        labels: Array.from(this.labels.entries()),
+        chatLabels: Array.from(this.chatLabels.entries()).map(([k, set]) => [k, Array.from(set)]),
+        statuses: Array.from(this.statuses.entries()),
+        userContacts: Array.from(this.userContacts.entries()).map(([k, set]) => [k, Array.from(set)]),
+      };
+      fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf8');
+    } catch (err) {
+      console.error('[Store] Failed to save store to file:', err);
+    }
+  }
+
+  public loadFromFile(): boolean {
+    try {
+      if (!fs.existsSync(STORE_FILE)) return false;
+      const raw = fs.readFileSync(STORE_FILE, 'utf8');
+      const data = JSON.parse(raw);
+
+      if (!data.users || data.users.length === 0) return false;
+
+      this.users = new Map(
+        data.users.map(([k, v]: [string, any]) => [
+          k,
+          {
+            ...v,
+            lastSeen: v.lastSeen ? new Date(v.lastSeen) : new Date(),
+            createdAt: v.createdAt ? new Date(v.createdAt) : new Date(),
+            updatedAt: v.updatedAt ? new Date(v.updatedAt) : new Date(),
+          },
+        ])
+      );
+
+      this.chats = new Map(
+        data.chats.map(([k, v]: [string, any]) => [
+          k,
+          {
+            ...v,
+            lastMessageAt: v.lastMessageAt ? new Date(v.lastMessageAt) : new Date(),
+            createdAt: v.createdAt ? new Date(v.createdAt) : new Date(),
+          },
+        ])
+      );
+
+      this.messages = new Map(
+        data.messages.map(([k, v]: [string, any]) => [
+          k,
+          {
+            ...v,
+            createdAt: v.createdAt ? new Date(v.createdAt) : new Date(),
+          },
+        ])
+      );
+
+      this.products = new Map(
+        (data.products || []).map(([k, v]: [string, any]) => [
+          k,
+          { ...v, createdAt: v.createdAt ? new Date(v.createdAt) : new Date() },
+        ])
+      );
+
+      this.quickReplies = new Map(
+        (data.quickReplies || []).map(([k, v]: [string, any]) => [
+          k,
+          { ...v, createdAt: v.createdAt ? new Date(v.createdAt) : new Date() },
+        ])
+      );
+
+      this.labels = new Map(
+        (data.labels || []).map(([k, v]: [string, any]) => [
+          k,
+          { ...v, createdAt: v.createdAt ? new Date(v.createdAt) : new Date() },
+        ])
+      );
+
+      this.chatLabels = new Map(
+        (data.chatLabels || []).map(([k, arr]: [string, string[]]) => [k, new Set(arr)])
+      );
+
+      this.statuses = new Map(
+        (data.statuses || []).map(([k, v]: [string, any]) => [
+          k,
+          {
+            ...v,
+            createdAt: v.createdAt ? new Date(v.createdAt) : new Date(),
+            expiresAt: v.expiresAt ? new Date(v.expiresAt) : new Date(),
+          },
+        ])
+      );
+
+      this.userContacts = new Map(
+        (data.userContacts || []).map(([k, arr]: [string, string[]]) => [k, new Set(arr)])
+      );
+
+      console.log(`[Store] Successfully loaded persistent store: ${this.users.size} users, ${this.chats.size} chats, ${this.messages.size} messages.`);
+      return true;
+    } catch (err) {
+      console.error('[Store] Failed to load store from file:', err);
+      return false;
+    }
   }
 
   private seedInitialData() {

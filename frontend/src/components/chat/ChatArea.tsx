@@ -16,7 +16,8 @@ import {
   Pause,
   Users,
   ShieldCheck,
-  X
+  X,
+  ArrowLeft
 } from 'lucide-react';
 import { Chat, Message, User, Product, QuickReply } from '../../types/index.js';
 import { soundEffects } from '../../utils/audioTones.js';
@@ -35,6 +36,7 @@ interface ChatAreaProps {
   typingUsers: string[];
   onStartTyping: () => void;
   onStopTyping: () => void;
+  onBack?: () => void;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -51,6 +53,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   typingUsers,
   onStartTyping,
   onStopTyping,
+  onBack,
 }) => {
   const [inputText, setInputText] = useState('');
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -125,14 +128,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     <div className="flex-1 flex flex-col h-full bg-[#0b141a] relative overflow-hidden">
       {/* 1. Chat Header */}
       <div className="h-16 px-4 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between z-10">
-        <div
-          onClick={() => {
-            if (!isGroup && otherMember) {
-              onOpenBusinessProfile(otherMember);
-            }
-          }}
-          className="flex items-center gap-3 cursor-pointer group"
-        >
+        <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="md:hidden p-1.5 -ml-1 text-gray-300 hover:text-white rounded-full hover:bg-[#374248] transition-colors"
+              title="Back to Chats"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+
+          <div
+            onClick={() => {
+              if (!isGroup && otherMember) {
+                onOpenBusinessProfile(otherMember);
+              }
+            }}
+            className="flex items-center gap-3 cursor-pointer group"
+          >
           <div className="relative">
             <img
               src={avatar}
@@ -167,6 +181,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             </p>
           </div>
         </div>
+      </div>
 
         {/* Action Buttons: Voice Call, Video Call, Menu */}
         <div className="flex items-center gap-2 text-[#aebac1]">
