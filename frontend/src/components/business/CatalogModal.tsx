@@ -56,7 +56,7 @@ export const CatalogModal: React.FC<CatalogModalProps> = ({
             </div>
             <div>
               <h3 className="text-lg font-semibold text-white">Business Catalog</h3>
-              <p className="text-xs text-gray-400">Products & Services for WhatsApp Business</p>
+              <p className="text-xs text-gray-400">Products & Services for IChat Business</p>
             </div>
           </div>
           <button

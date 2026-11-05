@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { store } from '../store.js';
+import { store, isPhoneMatch, normalizePhone } from '../store.js';
 import { UserData, ChatData } from '../types.js';
 import { v4 as uuidv4 } from 'uuid';
+import { broadcastNewChat, getEnrichedChat } from '../sockets/socketHandler.js';
 
 export const apiRouter = Router();
 
@@ -31,12 +32,6 @@ apiRouter.post('/auth/register', (req, res) => {
     return res.status(400).json({ error: 'Name, phone number, and password are required.' });
   }
 
-  // Check if phone already registered
-  const existingUser = Array.from(store.users.values()).find((u) => u.phone === phone);
-  if (existingUser) {
-    return res.status(400).json({ error: 'An account with this phone number already exists. Please log in.' });
-  }
-
   const defaultAvatars = [
     'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
     'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
@@ -45,15 +40,47 @@ apiRouter.post('/auth/register', (req, res) => {
   ];
   const chosenAvatar = avatar || defaultAvatars[Math.floor(Math.random() * defaultAvatars.length)];
 
+  // Check if account already exists for this phone
+  const existingUser = Array.from(store.users.values()).find((u) => isPhoneMatch(u.phone, phone));
+  if (existingUser) {
+    // If it is already a fully registered account with a password
+    if (existingUser.password) {
+      return res.status(400).json({ error: 'An account with this phone number already exists. Please log in.' });
+    }
+
+    // If it was a contact stub created when someone added this phone number, claim and activate it!
+    existingUser.name = name.trim();
+    existingUser.phone = phone.trim();
+    existingUser.password = password;
+    existingUser.avatar = chosenAvatar;
+    existingUser.about = isBusiness
+      ? 'Welcome to our official business chat!'
+      : 'Hey there! I am using IChat.';
+    existingUser.isBusiness = Boolean(isBusiness);
+    existingUser.businessName = isBusiness ? (businessName || name) : undefined;
+    existingUser.businessCategory = isBusiness ? (businessCategory || 'General Business') : undefined;
+    existingUser.businessDescription = isBusiness ? businessDescription : undefined;
+    existingUser.isOnline = true;
+    existingUser.lastSeen = new Date();
+    existingUser.updatedAt = new Date();
+
+    if (!store.userContacts.has(existingUser.id)) {
+      store.userContacts.set(existingUser.id, new Set());
+    }
+
+    store.saveToFile();
+    return res.status(201).json({ success: true, user: existingUser });
+  }
+
   const newUser: UserData = {
     id: `usr-${uuidv4()}`,
-    phone,
+    phone: phone.trim(),
     password,
-    name,
+    name: name.trim(),
     avatar: chosenAvatar,
     about: isBusiness
       ? 'Welcome to our official business chat!'
-      : 'Hey there! I am using WhatsApp Business.',
+      : 'Hey there! I am using IChat.',
     isBusiness: Boolean(isBusiness),
     businessName: isBusiness ? (businessName || name) : undefined,
     businessCategory: isBusiness ? (businessCategory || 'General Business') : undefined,
@@ -74,7 +101,6 @@ apiRouter.post('/auth/register', (req, res) => {
 apiRouter.post('/auth/login', (req, res) => {
   const { phone, password, demoUserId } = req.body;
 
-  // Fast demo user login bypass if selected directly
   if (demoUserId) {
     const user = store.users.get(demoUserId);
     if (user) {
@@ -88,7 +114,7 @@ apiRouter.post('/auth/login', (req, res) => {
     return res.status(400).json({ error: 'Phone number is required.' });
   }
 
-  const user = Array.from(store.users.values()).find((u) => u.phone === phone);
+  const user = Array.from(store.users.values()).find((u) => isPhoneMatch(u.phone, phone));
   if (!user) {
     return res.status(401).json({ error: 'No account found with this phone number. Please check or create a new account.' });
   }
@@ -159,39 +185,46 @@ apiRouter.post('/contacts', (req, res) => {
   }
 
   const cleanQuery = query.trim().toLowerCase();
-  const cleanDigits = query.replace(/\D/g, '');
+  const cleanDigits = normalizePhone(query);
 
   const currentUser = store.users.get(userId);
   if (
     userId.toLowerCase() === cleanQuery ||
-    (currentUser && cleanDigits.length >= 4 && currentUser.phone.replace(/\D/g, '').includes(cleanDigits))
+    (currentUser && isPhoneMatch(currentUser.phone, query))
   ) {
     return res.status(400).json({ error: "You cannot add yourself as a contact. Please enter another user's phone number, name, or ID." });
   }
 
+  // 1. Search among registered users first (have password)
   let contactUser = Array.from(store.users.values()).find((u) => {
     if (u.id === userId) return false;
-    // 1. By exact ID or substring ID
-    if (u.id.toLowerCase() === cleanQuery || u.id.toLowerCase().includes(cleanQuery)) return true;
-    // 2. By Phone (digits only comparison)
-    const userPhoneDigits = u.phone.replace(/\D/g, '');
-    if (cleanDigits.length >= 3 && (userPhoneDigits.includes(cleanDigits) || cleanDigits.includes(userPhoneDigits))) return true;
-    // 3. By Name or Business Name
-    if (u.name.toLowerCase().includes(cleanQuery)) return true;
-    if (u.businessName && u.businessName.toLowerCase().includes(cleanQuery)) return true;
+    if (u.id.toLowerCase() === cleanQuery) return true;
+    if (cleanDigits.length >= 6 && isPhoneMatch(u.phone, query) && Boolean(u.password)) return true;
+    if (u.name.toLowerCase() === cleanQuery && Boolean(u.password)) return true;
     return false;
   });
 
+  // 2. Fallback to any user matching phone, name, or ID
   if (!contactUser) {
-    // If not found in database, auto-create the contact just like WhatsApp does when adding a phone number!
+    contactUser = Array.from(store.users.values()).find((u) => {
+      if (u.id === userId) return false;
+      if (u.id.toLowerCase() === cleanQuery || u.id.toLowerCase().includes(cleanQuery)) return true;
+      if (cleanDigits.length >= 6 && isPhoneMatch(u.phone, query)) return true;
+      if (u.name.toLowerCase().includes(cleanQuery)) return true;
+      if (u.businessName && u.businessName.toLowerCase().includes(cleanQuery)) return true;
+      return false;
+    });
+  }
+
+  // 3. If still not found, create contact stub for this phone or name
+  if (!contactUser) {
     if (cleanDigits.length >= 6) {
-      // It's a phone number (e.g. 02054245616)
       const formattedPhone = query.trim();
       contactUser = {
         id: `usr-${uuidv4()}`,
         phone: formattedPhone,
         name: formattedPhone,
-        about: 'Hey there! I am using WhatsApp Business.',
+        about: 'Hey there! I am using IChat.',
         avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
         isBusiness: false,
         isOnline: false,
@@ -201,12 +234,11 @@ apiRouter.post('/contacts', (req, res) => {
       };
       store.users.set(contactUser.id, contactUser);
     } else if (cleanQuery.startsWith('usr-')) {
-      // It's a User ID
       contactUser = {
         id: cleanQuery,
         phone: `+${Math.floor(1000000000 + Math.random() * 9000000000)}`,
         name: `User ${cleanQuery.slice(4, 12)}`,
-        about: 'Hey there! I am using WhatsApp Business.',
+        about: 'Hey there! I am using IChat.',
         avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
         isBusiness: false,
         isOnline: false,
@@ -216,12 +248,11 @@ apiRouter.post('/contacts', (req, res) => {
       };
       store.users.set(contactUser.id, contactUser);
     } else if (cleanQuery.length >= 2) {
-      // It's a name
       contactUser = {
         id: `usr-${uuidv4()}`,
         phone: `+${Math.floor(1000000000 + Math.random() * 9000000000)}`,
         name: query.trim(),
-        about: 'Hey there! I am using WhatsApp Business.',
+        about: 'Hey there! I am using IChat.',
         avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
         isBusiness: false,
         isOnline: false,
@@ -268,7 +299,11 @@ apiRouter.post('/contacts', (req, res) => {
 
   store.saveToFile();
 
-  res.json({ success: true, contact: targetUser, chat: directChat });
+  // Broadcast new chat event to both users via socket
+  broadcastNewChat(directChat.id);
+
+  const enrichedChat = getEnrichedChat(directChat.id) || directChat;
+  res.json({ success: true, contact: targetUser, chat: enrichedChat });
 });
 
 // Mark chat messages as read
@@ -297,41 +332,21 @@ apiRouter.get('/chats', (req, res) => {
     .filter((chat) => chat.memberIds.includes(userId))
     .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
     .map((chat) => {
-      // Find members
-      const members = chat.memberIds.map((mId) => {
-        const u = store.users.get(mId);
+      const enriched = getEnrichedChat(chat.id);
+      if (enriched) {
+        // Calculate unread count specifically for requesting user
+        const chatMessages = Array.from(store.messages.values())
+          .filter((m) => m.chatId === chat.id);
+        const unreadCount = chatMessages.filter(
+          (m) => m.senderId !== userId && m.status !== 'read'
+        ).length;
+
         return {
-          id: `cm-${mId}`,
-          chatId: chat.id,
-          userId: mId,
-          role: 'member' as const,
-          user: u,
+          ...enriched,
+          unreadCount,
         };
-      });
-
-      // Find last message
-      const chatMessages = Array.from(store.messages.values())
-        .filter((m) => m.chatId === chat.id)
-        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-      const lastMessage = chatMessages[0];
-      const unreadCount = chatMessages.filter(
-        (m) => m.senderId !== userId && m.status !== 'read'
-      ).length;
-
-      // Labels
-      const labelIds = store.chatLabels.get(chat.id) || new Set();
-      const labels = Array.from(labelIds)
-        .map((lId) => store.labels.get(lId))
-        .filter(Boolean);
-
-      return {
-        ...chat,
-        members,
-        lastMessage,
-        unreadCount,
-        labels,
-      };
+      }
+      return chat;
     });
 
   res.json(userChats);
@@ -344,7 +359,6 @@ apiRouter.post('/chats/direct', (req, res) => {
     return res.status(400).json({ error: 'currentUserId and targetUserId required' });
   }
 
-  // Look for existing direct chat between these two
   let chat = Array.from(store.chats.values()).find(
     (c) =>
       !c.isGroup &&
@@ -363,9 +377,12 @@ apiRouter.post('/chats/direct', (req, res) => {
       lastMessageAt: new Date(),
     };
     store.chats.set(chat.id, chat);
+    store.saveToFile();
+    broadcastNewChat(chat.id);
   }
 
-  res.json(chat);
+  const enriched = getEnrichedChat(chat.id) || chat;
+  res.json(enriched);
 });
 
 // Create Group Chat
@@ -377,7 +394,7 @@ apiRouter.post('/chats/group', (req, res) => {
 
   const allMembers = Array.from(new Set([creatorId, ...(memberIds || [])]));
 
-  const newGroup = {
+  const newGroup: ChatData = {
     id: `chat-group-${uuidv4()}`,
     isGroup: true,
     name,
@@ -391,7 +408,6 @@ apiRouter.post('/chats/group', (req, res) => {
 
   store.chats.set(newGroup.id, newGroup);
 
-  // System join message
   const creator = store.users.get(creatorId);
   const sysMsg = {
     id: `msg-${uuidv4()}`,
@@ -403,8 +419,11 @@ apiRouter.post('/chats/group', (req, res) => {
     createdAt: new Date(),
   };
   store.messages.set(sysMsg.id, sysMsg);
+  store.saveToFile();
 
-  res.json(newGroup);
+  broadcastNewChat(newGroup.id);
+  const enriched = getEnrichedChat(newGroup.id) || newGroup;
+  res.json(enriched);
 });
 
 // Get Messages for a Chat
@@ -422,7 +441,7 @@ apiRouter.get('/chats/:id/messages', (req, res) => {
 });
 
 // ==========================================
-// 3. WhatsApp Business Catalog & Products
+// 3. IChat Business Catalog & Products
 // ==========================================
 apiRouter.get('/business/products', (req, res) => {
   const userId = req.query.userId as string;
@@ -451,6 +470,7 @@ apiRouter.post('/business/products', (req, res) => {
   };
 
   store.products.set(product.id, product);
+  store.saveToFile();
   res.json(product);
 });
 
@@ -480,6 +500,7 @@ apiRouter.post('/business/quick-replies', (req, res) => {
   };
 
   store.quickReplies.set(qr.id, qr);
+  store.saveToFile();
   res.json(qr);
 });
 
@@ -504,6 +525,7 @@ apiRouter.post('/business/labels', (req, res) => {
     createdAt: new Date(),
   };
   store.labels.set(label.id, label);
+  store.saveToFile();
   res.json(label);
 });
 
@@ -514,6 +536,7 @@ apiRouter.post('/chats/:id/labels', (req, res) => {
     store.chatLabels.set(chatId, new Set());
   }
   store.chatLabels.get(chatId)!.add(labelId);
+  store.saveToFile();
   res.json({ success: true });
 });
 
@@ -523,6 +546,7 @@ apiRouter.delete('/chats/:id/labels/:labelId', (req, res) => {
   if (set) {
     set.delete(labelId);
   }
+  store.saveToFile();
   res.json({ success: true });
 });
 
@@ -563,6 +587,7 @@ apiRouter.post('/status', (req, res) => {
   };
 
   store.statuses.set(status.id, status);
+  store.saveToFile();
   res.json(status);
 });
 
@@ -573,6 +598,7 @@ apiRouter.post('/status/:id/view', (req, res) => {
   const status = store.statuses.get(statusId);
   if (status && viewerId && !status.viewers.includes(viewerId)) {
     status.viewers.push(viewerId);
+    store.saveToFile();
   }
   res.json({ success: true });
 });

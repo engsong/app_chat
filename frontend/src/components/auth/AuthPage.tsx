@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  MessageSquare,
   ShieldCheck,
   User,
   Phone,
@@ -10,25 +9,24 @@ import {
   EyeOff,
   ArrowRight,
   Check,
-  Sparkles,
   AlertCircle
 } from 'lucide-react';
 import { User as UserType } from '../../types/index.js';
 
 interface AuthPageProps {
   onLoginSuccess: (user: UserType) => void;
-  demoUsers: UserType[];
+  demoUsers?: UserType[];
 }
 
-export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, demoUsers }) => {
+export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
   const [isLoginTab, setIsLoginTab] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Login form states
-  const [loginPhone, setLoginPhone] = useState('+1 800 555 0199');
-  const [loginPassword, setLoginPassword] = useState('password123');
+  // Login form states (clean initial inputs, no sample credentials)
+  const [loginPhone, setLoginPhone] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
 
   // Register form states
   const [regName, setRegName] = useState('');
@@ -124,43 +122,22 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, demoUsers })
     }
   };
 
-  // Quick Demo Login
-  const handleDemoLogin = async (demoUser: UserType) => {
-    setErrorMsg('');
-    setLoading(true);
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ demoUserId: demoUser.id }),
-      });
-      const data = await res.json();
-      if (data.user) {
-        onLoginSuccess(data.user);
-      }
-    } catch (err) {
-      setErrorMsg('Error switching demo user.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen w-screen bg-[#111b21] flex flex-col justify-between text-white font-sans overflow-y-auto">
-      {/* Top WhatsApp Banner */}
+      {/* Top IChat Banner */}
       <div className="h-44 md:h-56 bg-gradient-to-r from-[#008069] to-[#00a884] flex items-center justify-center p-6 shadow-md relative">
-        <div className="flex items-center gap-3 animate-fade-in">
-          <div className="w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-xl">
-            <MessageSquare className="w-8 h-8 text-white fill-white" />
+        <div className="flex items-center gap-4 animate-fade-in">
+          <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-xl p-2 overflow-hidden">
+            <img src="/logo.png" alt="IChat" className="w-full h-full object-contain" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white">
-                WhatsApp Business
+              <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white">
+                IChat
               </h1>
               <ShieldCheck className="w-6 h-6 text-white" />
             </div>
-            <p className="text-xs md:text-sm text-white/80 font-medium">
+            <p className="text-xs md:text-sm text-white/85 font-medium">
               Ultra-Fast Real-Time Messaging & WebRTC Calling
             </p>
           </div>
@@ -220,7 +197,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, demoUsers })
                   <input
                     type="text"
                     required
-                    placeholder="+1 800 555 0199"
+                    placeholder="Enter phone number (e.g. 02054245616)"
                     value={loginPhone}
                     onChange={(e) => setLoginPhone(e.target.value)}
                     className="w-full bg-[#111b21] border border-[#2a3942] focus:border-[#00a884] rounded-xl py-2.5 pl-10 pr-4 text-sm text-white placeholder-gray-500 focus:outline-none transition-colors"
@@ -255,49 +232,16 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, demoUsers })
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 bg-[#00a884] hover:bg-[#008f6f] text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-transform active:scale-[0.98] shadow-lg shadow-[#00a884]/20 disabled:opacity-50 mt-2"
+                className="w-full py-3 bg-[#00a884] hover:bg-[#008f6f] text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-transform active:scale-[0.98] shadow-lg shadow-[#00a884]/20 disabled:opacity-50 mt-4"
               >
                 {loading ? (
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
-                    Sign In to WhatsApp <ArrowRight className="w-4 h-4" />
+                    Sign In to IChat <ArrowRight className="w-4 h-4" />
                   </>
                 )}
               </button>
-
-              {/* Demo One-Click Sign In */}
-              {demoUsers.length > 0 && (
-                <div className="mt-6 pt-5 border-t border-[#2a3942]">
-                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-[#00a884]" /> Instant Demo Accounts
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {demoUsers.slice(0, 4).map((u) => (
-                      <button
-                        key={u.id}
-                        type="button"
-                        onClick={() => handleDemoLogin(u)}
-                        className="p-2 bg-[#111b21] hover:bg-[#2a3942] border border-[#2a3942] rounded-xl flex items-center gap-2 text-left transition-colors group"
-                      >
-                        <img
-                          src={u.avatar}
-                          alt=""
-                          className="w-7 h-7 rounded-full object-cover flex-shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-semibold text-white truncate leading-tight group-hover:text-[#00a884]">
-                            {u.name}
-                          </p>
-                          <span className="text-[9px] text-gray-400">
-                            {u.isBusiness ? '🏢 Business' : '👤 Client'}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
             </form>
           ) : (
             /* 2. Register Form (Create New Account) */
@@ -328,7 +272,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, demoUsers })
                   <input
                     type="tel"
                     required
-                    placeholder="+1 555 123 4567"
+                    placeholder="e.g. 02054245616"
                     value={regPhone}
                     onChange={(e) => setRegPhone(e.target.value)}
                     className="w-full bg-[#111b21] border border-[#2a3942] focus:border-[#00a884] rounded-xl py-2 pl-10 pr-3 text-xs text-white placeholder-gray-500 focus:outline-none"
@@ -450,7 +394,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, demoUsers })
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
-                    Complete Registration <ArrowRight className="w-4 h-4" />
+                    Create IChat Account <ArrowRight className="w-4 h-4" />
                   </>
                 )}
               </button>
@@ -461,7 +405,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, demoUsers })
 
       {/* Footer */}
       <div className="py-4 text-center text-xs text-gray-500 border-t border-[#2a3942]/40">
-        WhatsApp Business Web • End-to-End Encrypted Communication
+        IChat • Ultra-Fast Real-Time Communication
       </div>
     </div>
   );

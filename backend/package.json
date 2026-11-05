@@ -1,7 +1,7 @@
 {
-  "name": "whatsapp-business-backend",
+  "name": "ichat-backend",
   "version": "1.0.0",
-  "description": "Ultra-fast backend for WhatsApp Business WebRTC & Realtime Chat",
+  "description": "Ultra-fast backend for IChat WebRTC & Realtime Chat",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",

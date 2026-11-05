@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import {
   MessageSquare,
-  Users,
   CircleDashed,
   ShoppingBag,
   Tag,
   Search,
-  Plus,
   ShieldCheck,
   Check,
   CheckCheck,
@@ -62,10 +60,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     if (c.isGroup && c.name?.toLowerCase().includes(q)) return true;
 
-    const otherMember = c.members.find((m) => m.userId !== currentUser.id)?.user;
-    if (otherMember?.name.toLowerCase().includes(q)) return true;
+    const otherMember = c.members?.find((m) => m.userId !== currentUser.id)?.user;
+    if (otherMember?.name?.toLowerCase().includes(q)) return true;
     if (otherMember?.businessName?.toLowerCase().includes(q)) return true;
-    if (c.lastMessage?.content.toLowerCase().includes(q)) return true;
+    if (c.lastMessage?.content?.toLowerCase().includes(q)) return true;
 
     return false;
   });
@@ -78,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         activeChatId ? 'hidden md:flex' : 'flex'
       } w-full md:w-96 lg:w-[420px] h-full flex-col bg-[#111b21] border-r border-[#202c33] z-20 flex-shrink-0`}
     >
-      {/* 1. WhatsApp Top Bar */}
+      {/* 1. IChat Top Bar */}
       <div className="h-16 px-4 bg-[#202c33] flex items-center justify-between border-b border-[#2a3942]">
         {/* Current User Profile - Click opens Profile Info */}
         <div
@@ -98,11 +96,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </span>
             )}
           </div>
-          <div className="hidden sm:block">
-            <div className="flex items-center gap-1">
-              <span className="text-xs font-semibold text-white group-hover:text-[#00a884] transition-colors">
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-white group-hover:text-[#00a884] transition-colors max-w-[110px] truncate">
                 {currentUser.name}
               </span>
+              <img src="/logo.png" alt="IChat" className="w-4 h-4 object-contain inline-block" title="IChat" />
             </div>
             <span className="text-[10px] text-[#00a884] font-medium block">
               {currentUser.isBusiness ? 'Business Profile' : 'Personal Account'}
@@ -193,7 +192,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {filteredChats.map((chat) => {
           const isSelected = chat.id === activeChatId;
           const isGroup = chat.isGroup;
-          const otherMember = chat.members.find((m) => m.userId !== currentUser.id)?.user;
+          const otherMember = chat.members?.find((m) => m.userId !== currentUser.id)?.user;
           const title = isGroup ? chat.name : (otherMember?.businessName || otherMember?.name || 'Chat');
           const avatar = isGroup
             ? (chat.avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150')

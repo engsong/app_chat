@@ -1,4 +1,4 @@
-// Web Audio API generator for authentic WhatsApp call tones (ringing, dial tone, end call)
+// Web Audio API generator for authentic IChat call tones (ringing, dial tone, end call)
 class SoundEffects {
   private ctx: AudioContext | null = null;
   private ringOscillator: OscillatorNode | null = null;

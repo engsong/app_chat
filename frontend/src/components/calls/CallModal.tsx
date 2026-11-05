@@ -84,7 +84,7 @@ export const CallModal: React.FC<CallModalProps> = ({
 
           <h3 className="text-xl font-semibold text-white mb-1">{incomingCall.callerName}</h3>
           <p className="text-sm text-[#00a884] font-medium mb-6">
-            Incoming WhatsApp {incomingCall.isVideo ? 'Video' : 'Voice'} Call...
+            Incoming IChat {incomingCall.isVideo ? 'Video' : 'Voice'} Call...
           </p>
 
           <div className="flex items-center justify-center gap-8 w-full mt-2">
@@ -128,7 +128,7 @@ export const CallModal: React.FC<CallModalProps> = ({
             <div>
               <h4 className="font-semibold text-base leading-tight">{remoteUserName}</h4>
               <p className="text-xs text-[#00a884]">
-                {isCalling ? 'Calling...' : `WhatsApp ${isVideoCall ? 'Video' : 'Voice'} • ${formatTime(callDuration)}`}
+                {isCalling ? 'Calling...' : `IChat ${isVideoCall ? 'Video' : 'Voice'} • ${formatTime(callDuration)}`}
               </p>
             </div>
           </div>

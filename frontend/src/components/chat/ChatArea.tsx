@@ -70,7 +70,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Determine chat header details
   const isGroup = chat.isGroup;
-  const otherMember = chat.members.find((m) => m.userId !== currentUser.id)?.user;
+  const otherMember = chat.members?.find((m) => m.userId !== currentUser.id)?.user;
   const title = isGroup ? chat.name : (otherMember?.businessName || otherMember?.name || 'Chat');
   const avatar = isGroup
     ? (chat.avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150')

@@ -27,7 +27,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.get(['/health', '/api/health'], (req, res) => {
   res.json({
     status: 'ok',
-    service: 'WhatsApp Business API & Realtime Gateway',
+    service: 'IChat API & Realtime Gateway',
     timestamp: new Date(),
   });
 });
@@ -36,7 +36,7 @@ app.get(['/health', '/api/health'], (req, res) => {
 app.use('/api', apiRouter);
 
 // Socket.io with low latency config
-const io = new Server(server, {
+export const io = new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
@@ -51,7 +51,7 @@ setupSocketHandlers(io);
 
 server.listen(PORT, () => {
   console.log(`\n======================================================`);
-  console.log(`⚡ WhatsApp Business Ultra-Fast Real-Time Server running!`);
+  console.log(`⚡ IChat Ultra-Fast Real-Time Server running!`);
   console.log(`📡 HTTP & REST API:   http://localhost:${PORT}`);
   console.log(`🔊 WebRTC Signaling:  ws://localhost:${PORT}`);
   console.log(`💬 Frontend Proxy:    ${CLIENT_URL}`);

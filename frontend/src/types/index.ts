@@ -44,6 +44,7 @@ export interface Chat {
   avatar?: string;
   description?: string;
   lastMessageAt: string;
+  memberIds?: string[];
   members: ChatMember[];
   lastMessage?: Message;
   unreadCount?: number;

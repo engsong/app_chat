@@ -13,7 +13,7 @@ model User {
   name                String
   email               String?           @unique
   avatar              String?
-  about               String            @default("Hey there! I am using WhatsApp Business.")
+  about               String            @default("Hey there! I am using IChat.")
   isBusiness          Boolean           @default(false)
   businessName        String?
   businessCategory    String?

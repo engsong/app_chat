@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { MessageSquare, ShieldCheck, Lock, Laptop } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import { Sidebar } from './components/chat/Sidebar.js';
 import { ChatArea } from './components/chat/ChatArea.js';
 import { CallModal } from './components/calls/CallModal.js';
@@ -38,19 +38,34 @@ export const App: React.FC = () => {
   const [showNewChat, setShowNewChat] = useState(false);
   const [profileModalUser, setProfileModalUser] = useState<User | null>(null);
 
+  // Ref to track currentUser in socket and lifecycle callbacks
+  const currentUserRef = useRef<User | null>(null);
+  currentUserRef.current = currentUser;
+
   // Initialize WebRTC Calling Hook
   const webrtc = useWebRTC(socket, currentUser?.id || null);
 
-  // 1. Initialize Socket.io connection
+  // 1. Initialize Socket.io connection with automatic re-registration on reconnect
   useEffect(() => {
     const s = io(window.location.origin, {
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 25,
+      reconnectionDelay: 1000,
     });
     setSocket(s);
 
     s.on('connect', () => {
       console.log('[Socket] Connected to server, ID:', s.id);
+      if (currentUserRef.current) {
+        s.emit('user_connected', currentUserRef.current.id);
+      }
+    });
+
+    s.on('reconnect', () => {
+      console.log('[Socket] Reconnected, re-registering user:', currentUserRef.current?.id);
+      if (currentUserRef.current) {
+        s.emit('user_connected', currentUserRef.current.id);
+      }
     });
 
     return () => {
@@ -58,7 +73,7 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // 2. Fetch Initial Users, Products, Labels, Statuses
+  // 2. Fetch Initial Users, Products, Labels, Statuses & restore session
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
@@ -74,14 +89,16 @@ export const App: React.FC = () => {
         setProducts(productsRes);
         setQuickReplies(qrRes);
         setLabels(labelsRes);
+        setStatuses(statusRes);
+
         // Restore user from localStorage if saved
-        const saved = localStorage.getItem('whatsapp_user');
+        const saved = localStorage.getItem('ichat_user') || localStorage.getItem('whatsapp_user');
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
             setCurrentUser(parsed);
           } catch (e) {
-            // Ignore
+            // Ignore corrupted storage
           }
         }
       } catch (err) {
@@ -106,9 +123,11 @@ export const App: React.FC = () => {
 
   // 3. Register user with Socket when currentUser changes & load user's chats & contacts
   useEffect(() => {
-    if (!socket || !currentUser) return;
+    if (!currentUser) return;
 
-    socket.emit('user_connected', currentUser.id);
+    if (socket && socket.connected) {
+      socket.emit('user_connected', currentUser.id);
+    }
     fetchContacts(currentUser.id);
 
     const loadUserChats = async () => {
@@ -149,7 +168,7 @@ export const App: React.FC = () => {
     loadMessages();
   }, [activeChatId, socket, currentUser]);
 
-  // 5. Socket listeners for real-time messages, typing, receipts
+  // 5. Socket listeners for real-time messages, typing, receipts, new chats
   useEffect(() => {
     if (!socket || !currentUser) return;
 
@@ -178,7 +197,6 @@ export const App: React.FC = () => {
         let updated: Chat[];
 
         if (!exists) {
-          // Prepend new incoming chat
           updated = [
             {
               ...data.chat,
@@ -210,14 +228,25 @@ export const App: React.FC = () => {
       });
     };
 
+    const handleNewChat = (data: { chat: Chat }) => {
+      const isMember =
+        data.chat?.memberIds?.includes(currentUser.id) ||
+        data.chat?.members?.some((m) => m.userId === currentUser.id);
+      if (isMember) {
+        setChats((prev) => {
+          if (prev.some((c) => c.id === data.chat.id)) return prev;
+          return [data.chat, ...prev];
+        });
+        fetchContacts(currentUser.id);
+      }
+    };
+
     const handleMessagesMarkedRead = (data: { chatId: string; userId: string }) => {
-      // If messages in current chat were marked read by someone else, update to read ticks
       if (data.chatId === activeChatId) {
         setMessages((prev) =>
           prev.map((m) => (m.status !== 'read' ? { ...m, status: 'read' } : m))
         );
       }
-      // Update sidebar chat last message status
       setChats((prev) =>
         prev.map((c) => {
           if (c.id === data.chatId) {
@@ -251,14 +280,15 @@ export const App: React.FC = () => {
       setChats((prev) =>
         prev.map((c) => ({
           ...c,
-          members: c.members.map((m) =>
+          members: c.members?.map((m) =>
             m.userId === data.userId ? { ...m, user: { ...m.user, isOnline: data.isOnline } } : m
-          ),
+          ) || [],
         }))
       );
     };
 
     socket.on('new_message', handleNewMessage);
+    socket.on('new_chat', handleNewChat);
     socket.on('messages_marked_read', handleMessagesMarkedRead);
     socket.on('user_typing', handleUserTyping);
     socket.on('user_stopped_typing', handleUserStoppedTyping);
@@ -266,6 +296,7 @@ export const App: React.FC = () => {
 
     return () => {
       socket.off('new_message', handleNewMessage);
+      socket.off('new_chat', handleNewChat);
       socket.off('messages_marked_read', handleMessagesMarkedRead);
       socket.off('user_typing', handleUserTyping);
       socket.off('user_stopped_typing', handleUserStoppedTyping);
@@ -273,17 +304,16 @@ export const App: React.FC = () => {
     };
   }, [socket, activeChatId, currentUser]);
 
-  // Periodic background refresh for chats & messages (guarantees fresh data even if mobile tab slept)
+  // Periodic background refresh for chats & messages + window focus recovery (mobile resilient)
   useEffect(() => {
     if (!currentUser) return;
 
-    const interval = setInterval(async () => {
+    const refreshData = async () => {
       try {
         const res = await fetch(`/api/chats?userId=${currentUser.id}`);
         if (res.ok) {
           const freshChats: Chat[] = await res.json();
           setChats((prev) => {
-            // Keep local unreadCount = 0 for activeChatId
             return freshChats.map((fc) => (fc.id === activeChatId ? { ...fc, unreadCount: 0 } : fc));
           });
         }
@@ -296,12 +326,31 @@ export const App: React.FC = () => {
           }
         }
       } catch (e) {
-        // Ignore network hiccups
+        // Ignore network glitches
       }
-    }, 4000);
+    };
 
-    return () => clearInterval(interval);
-  }, [currentUser, activeChatId]);
+    const interval = setInterval(refreshData, 3000);
+
+    const handleFocus = () => {
+      if (socket && socket.connected && currentUser) {
+        socket.emit('user_connected', currentUser.id);
+      }
+      refreshData();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        handleFocus();
+      }
+    });
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [currentUser, activeChatId, socket]);
 
   // Send message handler
   const handleSendMessage = (
@@ -326,11 +375,9 @@ export const App: React.FC = () => {
     if (!activeChat || !currentUser) return;
 
     if (activeChat.isGroup) {
-      // Group voice call
       webrtc.joinGroupCall(activeChat.id, { id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }, false);
     } else {
-      // 1-on-1 Voice Call
-      const other = activeChat.members.find((m) => m.userId !== currentUser.id)?.user;
+      const other = activeChat.members?.find((m) => m.userId !== currentUser.id)?.user;
       if (other) {
         webrtc.startCall(other.id, other.name, other.avatar, false, activeChat.id);
       }
@@ -342,29 +389,19 @@ export const App: React.FC = () => {
     if (!activeChat || !currentUser) return;
 
     if (activeChat.isGroup) {
-      // Group video call
       webrtc.joinGroupCall(activeChat.id, { id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }, true);
     } else {
-      // 1-on-1 Video Call
-      const other = activeChat.members.find((m) => m.userId !== currentUser.id)?.user;
+      const other = activeChat.members?.find((m) => m.userId !== currentUser.id)?.user;
       if (other) {
         webrtc.startCall(other.id, other.name, other.avatar, true, activeChat.id);
       }
     }
   };
 
-  // Switch Active User (for testing WhatsApp Business side vs Client side)
-  const handleSwitchUser = (user: User) => {
-    localStorage.setItem('whatsapp_user', JSON.stringify(user));
-    setCurrentUser(user);
-    setActiveChatId(null);
-  };
-
   const handleLoginSuccess = (user: User) => {
-    localStorage.setItem('whatsapp_user', JSON.stringify(user));
+    localStorage.setItem('ichat_user', JSON.stringify(user));
     setCurrentUser(user);
     setActiveChatId(null);
-    // Refresh all users so any newly registered user is visible in contacts
     fetch('/api/users')
       .then((r) => r.json())
       .then((data) => setAllUsers(data))
@@ -372,6 +409,7 @@ export const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('ichat_user');
     localStorage.removeItem('whatsapp_user');
     setCurrentUser(null);
     setActiveChatId(null);
@@ -436,7 +474,7 @@ export const App: React.FC = () => {
         body: JSON.stringify({ ...data, userId: currentUser.id }),
       });
       const newStatus = await res.json();
-      setStatuses((prev) => [{ ...newStatus, user: currentUser, viewsCount: 0 }, ...prev]);
+      setStatuses((prev) => [newStatus, ...prev]);
     } catch (err) {
       console.error('Error posting status:', err);
     }
@@ -456,25 +494,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // Start direct 1-on-1 chat with a user
-  const handleStartDirectChat = async (targetUserId: string) => {
-    if (!currentUser) return;
-    try {
-      const res = await fetch('/api/chats/direct', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentUserId: currentUser.id, targetUserId }),
-      });
-      const chat = await res.json();
-      // Reload chats
-      const chatsRes = await fetch(`/api/chats?userId=${currentUser.id}`).then((r) => r.json());
-      setChats(chatsRes);
-      setActiveChatId(chat.id);
-    } catch (err) {
-      console.error('Error starting direct chat:', err);
-    }
-  };
-
   // Create Group Chat
   const handleCreateGroupChat = async (name: string, description: string, memberIds: string[]) => {
     if (!currentUser) return;
@@ -482,24 +501,50 @@ export const App: React.FC = () => {
       const res = await fetch('/api/chats/group', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, creatorId: currentUser.id, memberIds }),
+        body: JSON.stringify({
+          name,
+          description,
+          creatorId: currentUser.id,
+          memberIds,
+        }),
       });
-      const newGroup = await res.json();
-      const chatsRes = await fetch(`/api/chats?userId=${currentUser.id}`).then((r) => r.json());
-      setChats(chatsRes);
-      setActiveChatId(newGroup.id);
+      const newChat: Chat = await res.json();
+      setChats((prev) => [newChat, ...prev]);
+      setActiveChatId(newChat.id);
     } catch (err) {
       console.error('Error creating group chat:', err);
     }
   };
 
-  // Select Chat handler with instant unread count clearing
+  // Direct chat selection
+  const handleStartDirectChat = async (targetUserId: string) => {
+    if (!currentUser) return;
+    try {
+      const res = await fetch('/api/chats/direct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentUserId: currentUser.id,
+          targetUserId,
+        }),
+      });
+      const directChat: Chat = await res.json();
+      setChats((prev) => {
+        if (prev.some((c) => c.id === directChat.id)) return prev;
+        return [directChat, ...prev];
+      });
+      setActiveChatId(directChat.id);
+    } catch (err) {
+      console.error('Error starting direct chat:', err);
+    }
+  };
+
   const handleSelectChat = (chatId: string) => {
     setActiveChatId(chatId);
-    // Immediately clear unreadCount locally so badge clears immediately
     setChats((prev) =>
       prev.map((c) => (c.id === chatId ? { ...c, unreadCount: 0 } : c))
     );
+
     if (currentUser) {
       fetch(`/api/chats/${chatId}/read`, {
         method: 'POST',
@@ -549,7 +594,6 @@ export const App: React.FC = () => {
     return (
       <AuthPage
         onLoginSuccess={handleLoginSuccess}
-        demoUsers={allUsers}
       />
     );
   }
@@ -594,10 +638,10 @@ export const App: React.FC = () => {
       ) : (
         <div className="hidden md:flex flex-1 flex-col items-center justify-center bg-[#222e35] border-b-[6px] border-[#00a884] p-8 text-center">
           <div className="max-w-md flex flex-col items-center">
-            <div className="w-24 h-24 rounded-full bg-[#111b21] flex items-center justify-center mb-6 shadow-xl border border-[#2a3942]">
-              <Laptop className="w-12 h-12 text-[#00a884]" />
+            <div className="w-24 h-24 rounded-3xl bg-[#111b21] flex items-center justify-center mb-6 shadow-xl border border-[#2a3942] p-3">
+              <img src="/logo.png" alt="IChat" className="w-full h-full object-contain" />
             </div>
-            <h2 className="text-2xl font-light text-white mb-2">WhatsApp Business Web</h2>
+            <h2 className="text-2xl font-semibold text-white mb-2">IChat Web</h2>
             <p className="text-xs text-[#8696a0] leading-relaxed mb-8">
               Send and receive real-time messages, make 1-on-1 audio & video calls, organize group conferences, and manage your products catalog with ultra-fast latency.
             </p>
@@ -679,6 +723,11 @@ export const App: React.FC = () => {
             setAllUsers((prev) =>
               prev.map((u) => (u.id === currentUser.id ? { ...u, ...updated } : u))
             );
+            fetch(`/api/users/${currentUser.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(updated),
+            }).catch(() => {});
           }}
         />
       )}
@@ -689,7 +738,7 @@ export const App: React.FC = () => {
         onClose={() => setShowLabels(false)}
         labels={labels}
         selectedLabelId={selectedLabelId}
-        onSelectFilterLabel={(id) => setSelectedLabelId(id)}
+        onSelectFilterLabel={(labelId: string | null) => setSelectedLabelId(labelId)}
         onAddLabel={handleAddLabel}
       />
 
@@ -703,7 +752,7 @@ export const App: React.FC = () => {
         onViewStatus={handleViewStatus}
       />
 
-      {/* 10. New Chat / New Group Modal */}
+      {/* 10. New Chat Modal */}
       <NewChatModal
         isOpen={showNewChat}
         onClose={() => setShowNewChat(false)}
