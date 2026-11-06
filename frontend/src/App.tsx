@@ -148,7 +148,10 @@ export const App: React.FC = () => {
         const res = await fetch(`/api/chats?userId=${currentUser.id}`);
         const userChats: Chat[] = await res.json();
         setChats(userChats);
-        if (userChats.length > 0 && !activeChatId) {
+        // Only auto-open first chat on desktop screens (>= 768px).
+        // On mobile (< 768px), keep activeChatId null so user lands on the Home Page (Chat list)!
+        const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768;
+        if (isDesktop && userChats.length > 0 && !activeChatId) {
           setActiveChatId(userChats[0].id);
         }
       } catch (err) {
@@ -510,6 +513,21 @@ export const App: React.FC = () => {
     }
   };
 
+  // Delete multiple messages (WhatsApp select & delete)
+  const handleDeleteMessages = async (messageIds: string[]) => {
+    if (!messageIds || messageIds.length === 0) return;
+    try {
+      setMessages((prev) => prev.filter((m) => !messageIds.includes(m.id)));
+      await Promise.all(
+        messageIds.map((id) =>
+          fetch(`/api/messages/${id}`, { method: 'DELETE' }).catch(() => {})
+        )
+      );
+    } catch (err) {
+      console.error('Error deleting messages:', err);
+    }
+  };
+
   // Clear all messages in current chat
   const handleClearChat = async (targetId?: string) => {
     const id = targetId || activeChatId;
@@ -538,6 +556,25 @@ export const App: React.FC = () => {
       await fetch(`/api/chats/${id}`, { method: 'DELETE' });
     } catch (err) {
       console.error('Error deleting chat:', err);
+    }
+  };
+
+  // Delete multiple chats (WhatsApp select & delete)
+  const handleDeleteChats = async (chatIds: string[]) => {
+    if (!chatIds || chatIds.length === 0) return;
+    try {
+      setChats((prev) => prev.filter((c) => !chatIds.includes(c.id)));
+      if (activeChatId && chatIds.includes(activeChatId)) {
+        setActiveChatId(null);
+        setMessages([]);
+      }
+      await Promise.all(
+        chatIds.map((id) =>
+          fetch(`/api/chats/${id}`, { method: 'DELETE' }).catch(() => {})
+        )
+      );
+    } catch (err) {
+      console.error('Error deleting multiple chats:', err);
     }
   };
 
@@ -747,6 +784,7 @@ export const App: React.FC = () => {
         pendingUsersCount={pendingUsersCount}
         onLogout={handleLogout}
         onDeleteChat={handleDeleteChat}
+        onDeleteChats={handleDeleteChats}
         selectedLabelId={selectedLabelId}
         onClearLabelFilter={() => setSelectedLabelId(null)}
         labels={labels}
@@ -770,6 +808,7 @@ export const App: React.FC = () => {
           onStopTyping={() => socket?.emit('typing_stop', { chatId: activeChat.id, userId: currentUser.id })}
           onBack={() => setActiveChatId(null)}
           onDeleteMessage={handleDeleteMessage}
+          onDeleteMessages={handleDeleteMessages}
           onClearChat={handleClearChat}
           onDeleteChat={() => handleDeleteChat(activeChat.id)}
           onOpenWallpaper={() => setShowWallpaperModal(true)}

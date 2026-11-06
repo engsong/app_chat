@@ -23,7 +23,9 @@ import {
   Maximize2,
   PhoneCall,
   PhoneMissed,
-  MoreVertical
+  MoreVertical,
+  Star,
+  CornerUpRight
 } from 'lucide-react';
 import { Chat, Message, User, Product, QuickReply } from '../../types/index.js';
 import { soundEffects } from '../../utils/audioTones.js';
@@ -50,6 +52,7 @@ interface ChatAreaProps {
   onStopTyping: () => void;
   onBack?: () => void;
   onDeleteMessage?: (messageId: string) => void;
+  onDeleteMessages?: (messageIds: string[]) => void;
   onClearChat?: () => void;
   onDeleteChat?: () => void;
   onOpenWallpaper?: () => void;
@@ -72,6 +75,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onStopTyping,
   onBack,
   onDeleteMessage,
+  onDeleteMessages,
   onClearChat,
   onDeleteChat,
   onOpenWallpaper,
@@ -84,6 +88,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [showQuickReplyPicker, setShowQuickReplyPicker] = useState(false);
   const [filteredQuickReplies, setFilteredQuickReplies] = useState<QuickReply[]>([]);
   
+  // WhatsApp-style Message Selection state
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const longPressTimerRef = useRef<any>(null);
+  const touchMovedRef = useRef(false);
+
   // Audio playback state
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
@@ -105,6 +115,55 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
   const chatMenuRef = useRef<HTMLDivElement>(null);
+
+  // Toggle selection for a message
+  const toggleSelectMessage = (messageId: string) => {
+    setSelectedMessageIds((prev) => {
+      if (prev.includes(messageId)) {
+        return prev.filter((id) => id !== messageId);
+      } else {
+        return [...prev, messageId];
+      }
+    });
+  };
+
+  const handleMessageTouchStart = (messageId: string) => {
+    touchMovedRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      if (!touchMovedRef.current) {
+        toggleSelectMessage(messageId);
+        if (navigator.vibrate) {
+          try { navigator.vibrate(40); } catch (_) {}
+        }
+      }
+    }, 450);
+  };
+
+  const handleMessageTouchMove = () => {
+    touchMovedRef.current = true;
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleMessageTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleConfirmDeleteSelected = () => {
+    if (selectedMessageIds.length === 0) return;
+    if (onDeleteMessages) {
+      onDeleteMessages(selectedMessageIds);
+    } else if (onDeleteMessage) {
+      selectedMessageIds.forEach((id) => onDeleteMessage(id));
+    }
+    setSelectedMessageIds([]);
+    setShowDeleteConfirmModal(false);
+  };
 
   // Click outside to dismiss attach menu, emoji picker, and chat menu
   useEffect(() => {
@@ -149,6 +208,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     }
     setPlayingAudioId(null);
     cancelRecording();
+    setSelectedMessageIds([]);
+    setShowDeleteConfirmModal(false);
   }, [chat.id]);
 
   // Determine chat header details
@@ -400,148 +461,209 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         className="hidden"
       />
 
-      {/* 1. Chat Header */}
-      <div className="h-16 flex-shrink-0 px-3 sm:px-4 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between z-20">
-        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-          {onBack && (
+      {/* 1. Chat Header: WhatsApp-style Selection Header vs Normal Header */}
+      {selectedMessageIds.length > 0 ? (
+        <div className="h-16 flex-shrink-0 px-3 sm:px-4 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between z-20 animate-fade-in">
+          {/* Back button & Selection Count */}
+          <div className="flex items-center gap-3">
             <button
-              onClick={onBack}
-              className="md:hidden p-2 -ml-1 text-gray-200 hover:text-white rounded-full hover:bg-[#374248] active:bg-[#00a884]/30 transition-colors flex-shrink-0"
-              title="Back to Chats"
-              aria-label="Back to Chats"
+              onClick={() => setSelectedMessageIds([])}
+              className="p-2 -ml-1 text-gray-200 hover:text-white rounded-full hover:bg-[#374248] transition-colors"
+              title="Cancel selection"
+              aria-label="Cancel selection"
             >
               <ArrowLeft className="w-6 h-6" />
             </button>
-          )}
+            <span className="text-xl font-semibold text-white tracking-wide">
+              {selectedMessageIds.length}
+            </span>
+          </div>
 
-          <div
-            onClick={() => {
-              if (!isGroup && otherMember) {
-                onOpenBusinessProfile(otherMember);
-              }
-            }}
-            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group min-w-0"
-          >
-            <div className="relative flex-shrink-0">
-              <img
-                src={avatar}
-                alt={title || ''}
-                className="w-10 h-10 rounded-full object-cover"
-              />
-              {!isGroup && otherMember?.isOnline && (
-                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#00a884] rounded-full border-2 border-[#202c33]" />
-              )}
-            </div>
-            <div className="min-w-0">
-              <h3 className="font-semibold text-sm sm:text-base text-white group-hover:text-[#00a884] transition-colors truncate">
-                {title}
-              </h3>
-              <p className="text-[11px] text-[#8696a0] truncate">
-                {isOtherTyping ? (
-                  <span className="text-[#00a884] font-medium animate-pulse">typing...</span>
-                ) : isGroup ? (
-                  `${chat.members?.length || 0} participants`
-                ) : otherMember?.isOnline ? (
-                  <span className="text-[#00a884]">online</span>
-                ) : otherMember?.lastSeen ? (
-                  `last seen ${new Date(otherMember.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                ) : (
-                  'offline'
-                )}
-              </p>
-            </div>
+          {/* Action icons: Star, Delete (Trash), Forward */}
+          <div className="flex items-center gap-1 sm:gap-2 text-[#aebac1]">
+            <button
+              onClick={() => {
+                alert(`${selectedMessageIds.length} message(s) starred`);
+                setSelectedMessageIds([]);
+              }}
+              className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
+              title="Star"
+            >
+              <Star className="w-5 h-5" />
+            </button>
+
+            <button
+              onClick={() => setShowDeleteConfirmModal(true)}
+              className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-red-400 transition-colors"
+              title="Delete selected message(s)"
+              aria-label="Delete selected message(s)"
+            >
+              <Trash2 className="w-5 h-5 text-white hover:text-red-400" />
+            </button>
+
+            <button
+              onClick={() => {
+                const texts = messages
+                  .filter((m) => selectedMessageIds.includes(m.id))
+                  .map((m) => m.content)
+                  .filter(Boolean)
+                  .join('\n');
+                if (navigator.clipboard && texts) {
+                  navigator.clipboard.writeText(texts);
+                  alert('Copied selected message(s) to clipboard');
+                }
+                setSelectedMessageIds([]);
+              }}
+              className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
+              title="Forward or Copy"
+            >
+              <CornerUpRight className="w-5 h-5" />
+            </button>
           </div>
         </div>
+      ) : (
+        <div className="h-16 flex-shrink-0 px-3 sm:px-4 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between z-20">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="md:hidden p-2 -ml-1 text-gray-200 hover:text-white rounded-full hover:bg-[#374248] active:bg-[#00a884]/30 transition-colors flex-shrink-0"
+                title="Back to Chats"
+                aria-label="Back to Chats"
+              >
+                <ArrowLeft className="w-6 h-6" />
+              </button>
+            )}
 
-        {/* Action Call & Business Buttons */}
-        <div className="flex items-center gap-0.5 sm:gap-1 text-[#aebac1] flex-shrink-0">
-          {/* Audio Call */}
-          <button
-            onClick={onStartAudioCall}
-            className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
-            title={isGroup ? 'Start Group Voice Call' : 'Start Voice Call'}
-          >
-            <Phone className="w-5 h-5" />
-          </button>
-
-          {/* Video Call */}
-          <button
-            onClick={onStartVideoCall}
-            className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
-            title={isGroup ? 'Start Group Video Call' : 'Start Video Call'}
-          >
-            <Video className="w-5 h-5" />
-          </button>
-
-          {/* Business Catalog Quick Button */}
-          {currentUser.isBusiness && (
-            <button
-              onClick={onOpenCatalog}
-              className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
-              title="Business Catalog"
+            <div
+              onClick={() => {
+                if (!isGroup && otherMember) {
+                  onOpenBusinessProfile(otherMember);
+                }
+              }}
+              className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group min-w-0"
             >
-              <ShoppingBag className="w-5 h-5" />
-            </button>
-          )}
-
-          {/* Chat Options Menu (Wallpaper, Clear, Delete) */}
-          <div className="relative" ref={chatMenuRef}>
-            <button
-              onClick={() => setShowChatMenu(!showChatMenu)}
-              className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
-              title="More options"
-              aria-label="More options"
-            >
-              <MoreVertical className="w-5 h-5" />
-            </button>
-
-            {showChatMenu && (
-              <div className="absolute right-0 top-full mt-1.5 w-52 bg-[#233138] rounded-xl shadow-2xl border border-[#2a3942] py-1.5 z-50 text-sm text-[#d1d7db] animate-scale-up">
-                {onOpenWallpaper && (
-                  <button
-                    onClick={() => {
-                      setShowChatMenu(false);
-                      onOpenWallpaper();
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#111b21] hover:text-[#00a884] text-left transition-colors"
-                  >
-                    <ImageIcon className="w-4 h-4 text-[#00a884]" />
-                    <span>Change Wallpaper</span>
-                  </button>
-                )}
-                {onClearChat && (
-                  <button
-                    onClick={() => {
-                      setShowChatMenu(false);
-                      if (window.confirm('Are you sure you want to clear all messages in this chat?')) {
-                        onClearChat();
-                      }
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#111b21] hover:text-amber-400 text-left transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4 text-amber-400" />
-                    <span>Clear Messages</span>
-                  </button>
-                )}
-                {onDeleteChat && (
-                  <button
-                    onClick={() => {
-                      setShowChatMenu(false);
-                      if (window.confirm('Delete this entire chat conversation? This action cannot be undone.')) {
-                        onDeleteChat();
-                      }
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#111b21] hover:text-red-400 text-left transition-colors border-t border-[#2a3942]/50 text-red-400"
-                  >
-                    <Trash2 className="w-4 h-4 text-red-400" />
-                    <span>Delete Conversation</span>
-                  </button>
+              <div className="relative flex-shrink-0">
+                <img
+                  src={avatar}
+                  alt={title || ''}
+                  className="w-10 h-10 rounded-full object-cover"
+                />
+                {!isGroup && otherMember?.isOnline && (
+                  <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#00a884] rounded-full border-2 border-[#202c33]" />
                 )}
               </div>
+              <div className="min-w-0">
+                <h3 className="font-semibold text-sm sm:text-base text-white group-hover:text-[#00a884] transition-colors truncate">
+                  {title}
+                </h3>
+                <p className="text-[11px] text-[#8696a0] truncate">
+                  {isOtherTyping ? (
+                    <span className="text-[#00a884] font-medium animate-pulse">typing...</span>
+                  ) : isGroup ? (
+                    `${chat.members?.length || 0} participants`
+                  ) : otherMember?.isOnline ? (
+                    <span className="text-[#00a884]">online</span>
+                  ) : otherMember?.lastSeen ? (
+                    `last seen ${new Date(otherMember.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                  ) : (
+                    'offline'
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Call & Business Buttons */}
+          <div className="flex items-center gap-0.5 sm:gap-1 text-[#aebac1] flex-shrink-0">
+            {/* Audio Call */}
+            <button
+              onClick={onStartAudioCall}
+              className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
+              title={isGroup ? 'Start Group Voice Call' : 'Start Voice Call'}
+            >
+              <Phone className="w-5 h-5" />
+            </button>
+
+            {/* Video Call */}
+            <button
+              onClick={onStartVideoCall}
+              className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
+              title={isGroup ? 'Start Group Video Call' : 'Start Video Call'}
+            >
+              <Video className="w-5 h-5" />
+            </button>
+
+            {/* Business Catalog Quick Button */}
+            {currentUser.isBusiness && (
+              <button
+                onClick={onOpenCatalog}
+                className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
+                title="Business Catalog"
+              >
+                <ShoppingBag className="w-5 h-5" />
+              </button>
             )}
+
+            {/* Chat Options Menu (Wallpaper, Clear, Delete) */}
+            <div className="relative" ref={chatMenuRef}>
+              <button
+                onClick={() => setShowChatMenu(!showChatMenu)}
+                className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
+                title="More options"
+                aria-label="More options"
+              >
+                <MoreVertical className="w-5 h-5" />
+              </button>
+
+              {showChatMenu && (
+                <div className="absolute right-0 top-full mt-1.5 w-52 bg-[#233138] rounded-xl shadow-2xl border border-[#2a3942] py-1.5 z-50 text-sm text-[#d1d7db] animate-scale-up">
+                  {onOpenWallpaper && (
+                    <button
+                      onClick={() => {
+                        setShowChatMenu(false);
+                        onOpenWallpaper();
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#111b21] hover:text-[#00a884] text-left transition-colors"
+                    >
+                      <ImageIcon className="w-4 h-4 text-[#00a884]" />
+                      <span>Change Wallpaper</span>
+                    </button>
+                  )}
+                  {onClearChat && (
+                    <button
+                      onClick={() => {
+                        setShowChatMenu(false);
+                        if (window.confirm('Are you sure you want to clear all messages in this chat?')) {
+                          onClearChat();
+                        }
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#111b21] hover:text-amber-400 text-left transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4 text-amber-400" />
+                      <span>Clear Messages</span>
+                    </button>
+                  )}
+                  {onDeleteChat && (
+                    <button
+                      onClick={() => {
+                        setShowChatMenu(false);
+                        if (window.confirm('Delete this entire chat conversation? This action cannot be undone.')) {
+                          onDeleteChat();
+                        }
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#111b21] hover:text-red-400 text-left transition-colors border-t border-[#2a3942]/50 text-red-400"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-400" />
+                      <span>Delete Conversation</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* 2. Messages List Body */}
       <div
@@ -566,14 +688,31 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         {messages.map((msg) => {
           const isMe = msg.senderId === currentUser.id;
           const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const isSelected = selectedMessageIds.includes(msg.id);
 
           return (
             <div
               key={msg.id}
-              className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-fade-in`}
+              onClick={() => {
+                if (selectedMessageIds.length > 0) {
+                  toggleSelectMessage(msg.id);
+                }
+              }}
+              onTouchStart={() => handleMessageTouchStart(msg.id)}
+              onTouchMove={handleMessageTouchMove}
+              onTouchEnd={handleMessageTouchEnd}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                toggleSelectMessage(msg.id);
+              }}
+              className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-fade-in w-full px-2 py-0.5 rounded-xl transition-all cursor-pointer select-none ${
+                isSelected ? 'bg-[#00a884]/20 ring-2 ring-[#00a884]/60' : ''
+              }`}
             >
               <div
-                className={`max-w-[88%] sm:max-w-md rounded-2xl p-2.5 sm:p-3 shadow-md relative ${
+                className={`max-w-[88%] sm:max-w-md rounded-2xl p-2.5 sm:p-3 shadow-md relative transition-transform ${
+                  isSelected ? 'scale-[0.99]' : ''
+                } ${
                   isMe
                     ? 'bg-[#005c4b] text-white rounded-tr-none'
                     : 'bg-[#202c33] text-white rounded-tl-none border border-[#2a3942]/50'
@@ -825,9 +964,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (window.confirm('Delete this message?')) {
-                          onDeleteMessage(msg.id);
-                        }
+                        setSelectedMessageIds([msg.id]);
+                        setShowDeleteConfirmModal(true);
                       }}
                       className="opacity-40 hover:opacity-100 hover:text-red-400 p-0.5 rounded transition-all"
                       title="Delete message"
@@ -1125,6 +1263,46 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               alt="Enlarged"
               className="max-h-[85dvh] max-w-full rounded-2xl object-contain shadow-2xl"
             />
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp-style Delete Confirmation Dialog */}
+      {showDeleteConfirmModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in"
+          onClick={() => setShowDeleteConfirmModal(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#2a3942] border border-[#3b4a54] rounded-2xl max-w-sm w-full p-6 shadow-2xl text-left animate-scale-up"
+          >
+            <h3 className="text-base font-semibold text-white mb-2">
+              Delete message{selectedMessageIds.length > 1 ? 's' : ''}?
+            </h3>
+            <p className="text-xs text-[#aebac1] mb-6">
+              Are you sure you want to delete {selectedMessageIds.length} selected message{selectedMessageIds.length > 1 ? 's' : ''}?
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleConfirmDeleteSelected}
+                className="w-full py-2.5 px-4 rounded-xl bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white font-medium text-xs transition-colors text-center"
+              >
+                Delete for everyone
+              </button>
+              <button
+                onClick={handleConfirmDeleteSelected}
+                className="w-full py-2.5 px-4 rounded-xl bg-[#202c33] hover:bg-[#374248] text-[#00a884] font-medium text-xs transition-colors text-center"
+              >
+                Delete for me
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirmModal(false)}
+                className="w-full py-2 px-4 rounded-xl text-[#8696a0] hover:text-white text-xs transition-colors text-center"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
