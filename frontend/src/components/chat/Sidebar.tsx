@@ -10,7 +10,8 @@ import {
   Check,
   CheckCheck,
   X,
-  LogOut
+  LogOut,
+  PhoneCall
 } from 'lucide-react';
 import { Chat, User, Label } from '../../types/index.js';
 
@@ -20,6 +21,7 @@ interface SidebarProps {
   onSelectChat: (chatId: string) => void;
   currentUser: User;
   onOpenNewChat: () => void;
+  onOpenCallsHistory: () => void;
   onOpenStatus: () => void;
   onOpenCatalog: () => void;
   onOpenLabels: () => void;
@@ -38,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectChat,
   currentUser,
   onOpenNewChat,
+  onOpenCallsHistory,
   onOpenStatus,
   onOpenCatalog,
   onOpenLabels,
@@ -143,6 +146,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title="Filter by Labels"
           >
             <Tag className="w-5 h-5" />
+          </button>
+
+          {/* Call History */}
+          <button
+            onClick={onOpenCallsHistory}
+            className="p-2 rounded-full hover:bg-[#374248] hover:text-white transition-colors"
+            title="Call History"
+          >
+            <PhoneCall className="w-5 h-5" />
           </button>
 
           {/* New Chat / New Group */}

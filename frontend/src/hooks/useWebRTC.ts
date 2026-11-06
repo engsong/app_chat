@@ -134,7 +134,9 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     targetName: string,
     targetAvatar: string | undefined,
     video: boolean,
-    chatId?: string
+    chatId?: string,
+    currentUserName?: string,
+    currentUserAvatar?: string
   ) => {
     if (!socket || !currentUserId) return;
 
@@ -172,8 +174,8 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
       userToCall: targetUserId,
       signalData: offer,
       from: currentUserId,
-      callerName: targetName,
-      callerAvatar: targetAvatar,
+      callerName: currentUserName || 'IChat User',
+      callerAvatar: currentUserAvatar,
       isVideo: video,
       chatId,
     });
@@ -231,7 +233,7 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
 
   const endCall = () => {
     if (socket && callPartnerIdRef.current) {
-      socket.emit('end_call', { to: callPartnerIdRef.current });
+      socket.emit('end_call', { to: callPartnerIdRef.current, duration: callDuration });
     }
     cleanupCall();
   };

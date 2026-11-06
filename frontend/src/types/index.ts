@@ -31,7 +31,7 @@ export interface Message {
   id: string;
   chatId: string;
   senderId: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product';
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product' | 'call';
   content: string;
   mediaUrl?: string;
   metadata?: string; // JSON with audio duration, file size, or product info

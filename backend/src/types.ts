@@ -25,7 +25,7 @@ export interface MessageData {
   id: string;
   chatId: string;
   senderId: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product';
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product' | 'call';
   content: string;
   mediaUrl?: string;
   metadata?: string;

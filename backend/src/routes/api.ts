@@ -826,3 +826,25 @@ apiRouter.get('/admin/chats/:id/messages', verifyAdmin, (req, res) => {
 
   res.json(messages);
 });
+
+// ==========================================
+// 9. Call History
+// ==========================================
+apiRouter.get('/calls', (req, res) => {
+  const userId = req.query.userId as string;
+  let calls = Array.from(store.calls.values());
+  if (userId) {
+    calls = calls.filter((c) => c.callerId === userId || c.receiverId === userId);
+  }
+  const enriched = calls.map((c) => {
+    const caller = store.users.get(c.callerId);
+    const receiver = c.receiverId ? store.users.get(c.receiverId) : undefined;
+    return {
+      ...c,
+      caller: caller ? { id: caller.id, name: caller.name, phone: caller.phone, avatar: caller.avatar } : undefined,
+      receiver: receiver ? { id: receiver.id, name: receiver.name, phone: receiver.phone, avatar: receiver.avatar } : undefined,
+    };
+  });
+  enriched.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+  res.json(enriched);
+});

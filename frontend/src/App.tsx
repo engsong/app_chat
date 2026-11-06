@@ -5,6 +5,7 @@ import { Sidebar } from './components/chat/Sidebar.js';
 import { ChatArea } from './components/chat/ChatArea.js';
 import { CallModal } from './components/calls/CallModal.js';
 import { GroupCallModal } from './components/calls/GroupCallModal.js';
+import { CallsHistoryModal } from './components/calls/CallsHistoryModal.js';
 import { CatalogModal } from './components/business/CatalogModal.js';
 import { QuickRepliesModal } from './components/business/QuickRepliesModal.js';
 import { BusinessProfileModal } from './components/business/BusinessProfileModal.js';
@@ -37,6 +38,7 @@ export const App: React.FC = () => {
   const [showLabels, setShowLabels] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showCallsHistory, setShowCallsHistory] = useState(false);
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const [pendingUsersCount, setPendingUsersCount] = useState(0);
   const [profileModalUser, setProfileModalUser] = useState<User | null>(null);
@@ -372,7 +374,7 @@ export const App: React.FC = () => {
   // Send message handler
   const handleSendMessage = (
     content: string,
-    type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product' = 'text',
+    type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product' | 'call' = 'text',
     metadata?: string,
     mediaUrl?: string
   ) => {
@@ -398,7 +400,7 @@ export const App: React.FC = () => {
     } else {
       const other = activeChat.members?.find((m) => m.userId !== currentUser.id)?.user;
       if (other) {
-        webrtc.startCall(other.id, other.name, other.avatar, false, activeChat.id);
+        webrtc.startCall(other.id, other.name, other.avatar, false, activeChat.id, currentUser.name, currentUser.avatar);
       }
     }
   };
@@ -412,7 +414,7 @@ export const App: React.FC = () => {
     } else {
       const other = activeChat.members?.find((m) => m.userId !== currentUser.id)?.user;
       if (other) {
-        webrtc.startCall(other.id, other.name, other.avatar, true, activeChat.id);
+        webrtc.startCall(other.id, other.name, other.avatar, true, activeChat.id, currentUser.name, currentUser.avatar);
       }
     }
   };
@@ -626,6 +628,7 @@ export const App: React.FC = () => {
         onSelectChat={handleSelectChat}
         currentUser={currentUser}
         onOpenNewChat={() => setShowNewChat(true)}
+        onOpenCallsHistory={() => setShowCallsHistory(true)}
         onOpenStatus={() => setShowStatus(true)}
         onOpenCatalog={() => setShowCatalog(true)}
         onOpenLabels={() => setShowLabels(true)}
@@ -796,6 +799,32 @@ export const App: React.FC = () => {
               .catch(() => {});
           }}
           currentUser={currentUser}
+        />
+      )}
+
+      {/* 12. Call History Modal */}
+      {showCallsHistory && currentUser && (
+        <CallsHistoryModal
+          currentUser={currentUser}
+          onClose={() => setShowCallsHistory(false)}
+          onStartCall={(targetUser, isVideo) => {
+            setShowCallsHistory(false);
+            const directChat = chats.find(
+              (c) => !c.isGroup && c.members?.some((m) => m.userId === targetUser.id)
+            );
+            if (directChat) {
+              setActiveChatId(directChat.id);
+            }
+            webrtc.startCall(
+              targetUser.id,
+              targetUser.name,
+              targetUser.avatar,
+              isVideo,
+              directChat?.id,
+              currentUser.name,
+              currentUser.avatar
+            );
+          }}
         />
       )}
     </div>

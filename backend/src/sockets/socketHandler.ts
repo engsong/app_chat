@@ -1,6 +1,7 @@
 import { Server, Socket } from 'socket.io';
 import { store } from '../store.js';
 import { v4 as uuidv4 } from 'uuid';
+import { CallData, MessageData } from '../types.js';
 
 export function getEnrichedChat(chatId: string) {
   const chat = store.chats.get(chatId);
@@ -58,6 +59,16 @@ export function broadcastNewChat(chatId: string) {
   });
 }
 
+interface ActiveCallSession {
+  callId: string;
+  callerId: string;
+  receiverId: string;
+  isVideo: boolean;
+  chatId?: string;
+  startedAt: Date;
+  connectedAt?: Date;
+}
+
 export function setupSocketHandlers(io: Server) {
   ioInstance = io;
   // Mapping of userId -> Set of socketIds (to support multiple tabs/devices)
@@ -66,6 +77,8 @@ export function setupSocketHandlers(io: Server) {
   const socketUserMap = new Map<string, string>();
   // Active group calls: groupId -> Map<userId, socketId>
   const activeGroupCalls = new Map<string, Map<string, { socketId: string; isVideo: boolean; name: string; avatar?: string }>>();
+  // Active 1-on-1 calls: pairKey -> ActiveCallSession
+  const active1on1Calls = new Map<string, ActiveCallSession>();
 
   io.on('connection', (socket: Socket) => {
     console.log(`[Socket] Client connected: ${socket.id}`);
@@ -209,6 +222,44 @@ export function setupSocketHandlers(io: Server) {
       chatId?: string;
     }) => {
       console.log(`[Call] Initiate call from ${data.from} to ${data.userToCall}, video: ${data.isVideo}`);
+
+      // Resolve direct chat if not provided
+      let targetChatId = data.chatId;
+      if (!targetChatId) {
+        const directChat = Array.from(store.chats.values()).find(
+          (c) => !c.isGroup && c.memberIds.includes(data.from) && c.memberIds.includes(data.userToCall)
+        );
+        if (directChat) targetChatId = directChat.id;
+      }
+
+      const callId = `call-${uuidv4()}`;
+      const startedAt = new Date();
+      const pairKey = [data.from, data.userToCall].sort().join('_');
+
+      // Persist call session in store.calls
+      const newCall: CallData = {
+        id: callId,
+        chatId: targetChatId,
+        callerId: data.from,
+        receiverId: data.userToCall,
+        isGroup: false,
+        type: data.isVideo ? 'video' : 'voice',
+        status: 'ringing',
+        startedAt,
+      };
+      store.calls.set(callId, newCall);
+      store.saveToFile();
+
+      // Track active session in memory
+      active1on1Calls.set(pairKey, {
+        callId,
+        callerId: data.from,
+        receiverId: data.userToCall,
+        isVideo: !!data.isVideo,
+        chatId: targetChatId,
+        startedAt,
+      });
+
       const targetSockets = userSocketMap.get(data.userToCall);
       const payload = {
         signal: data.signalData,
@@ -216,11 +267,11 @@ export function setupSocketHandlers(io: Server) {
         callerName: data.callerName,
         callerAvatar: data.callerAvatar,
         isVideo: data.isVideo,
-        chatId: data.chatId,
+        chatId: targetChatId,
+        callId,
       };
 
       io.to(`user_${data.userToCall}`).emit('incoming_call', payload);
-
       if (targetSockets && targetSockets.size > 0) {
         targetSockets.forEach((sId) => {
           io.to(sId).emit('incoming_call', payload);
@@ -230,7 +281,21 @@ export function setupSocketHandlers(io: Server) {
 
     socket.on('accept_call', (data: { signal: any; to: string }) => {
       console.log(`[Call] Call accepted by ${socket.id} for user ${data.to}`);
-      const payload = { signal: data.signal, from: socketUserMap.get(socket.id) };
+      const senderId = socketUserMap.get(socket.id);
+      if (senderId) {
+        const pairKey = [senderId, data.to].sort().join('_');
+        const session = active1on1Calls.get(pairKey);
+        if (session) {
+          session.connectedAt = new Date();
+          const record = store.calls.get(session.callId);
+          if (record) {
+            record.status = 'connected';
+            store.saveToFile();
+          }
+        }
+      }
+
+      const payload = { signal: data.signal, from: senderId };
       io.to(`user_${data.to}`).emit('call_accepted', payload);
       const callerSockets = userSocketMap.get(data.to);
       if (callerSockets) {
@@ -242,6 +307,53 @@ export function setupSocketHandlers(io: Server) {
 
     socket.on('reject_call', (data: { to: string; reason?: string }) => {
       console.log(`[Call] Call rejected for ${data.to}`);
+      const senderId = socketUserMap.get(socket.id) || '';
+      const pairKey = [senderId, data.to].sort().join('_');
+      const session = active1on1Calls.get(pairKey);
+      if (session) {
+        active1on1Calls.delete(pairKey);
+        const endedAt = new Date();
+        const record = store.calls.get(session.callId);
+        if (record) {
+          record.status = 'declined';
+          record.endedAt = endedAt;
+          record.duration = 0;
+          store.saveToFile();
+        }
+
+        // Post chat message in direct chat
+        if (session.chatId) {
+          const chat = store.chats.get(session.chatId);
+          if (chat) {
+            const callMsg: MessageData = {
+              id: `msg-${uuidv4()}`,
+              chatId: chat.id,
+              senderId: session.callerId,
+              type: 'call',
+              content: session.isVideo ? '📹 Declined video call' : '📞 Declined voice call',
+              metadata: JSON.stringify({
+                callId: session.callId,
+                type: session.isVideo ? 'video' : 'voice',
+                status: 'declined',
+                duration: 0,
+                startedAt: session.startedAt,
+              }),
+              status: 'sent',
+              createdAt: endedAt,
+            };
+            store.messages.set(callMsg.id, callMsg);
+            chat.lastMessageAt = endedAt;
+            store.saveToFile();
+
+            const enrichedChat = getEnrichedChat(chat.id) || chat;
+            [session.callerId, session.receiverId].forEach((mId) => {
+              io.to(`user_${mId}`).emit('new_message', { message: callMsg, chat: enrichedChat });
+              userSocketMap.get(mId)?.forEach((sId) => io.to(sId).emit('new_message', { message: callMsg, chat: enrichedChat }));
+            });
+          }
+        }
+      }
+
       const payload = { reason: data.reason || 'Call declined' };
       io.to(`user_${data.to}`).emit('call_rejected', payload);
       const callerSockets = userSocketMap.get(data.to);
@@ -252,8 +364,69 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
-    socket.on('end_call', (data: { to: string }) => {
+    socket.on('end_call', (data: { to: string; duration?: number }) => {
       console.log(`[Call] Call ended for ${data.to}`);
+      const senderId = socketUserMap.get(socket.id) || '';
+      const pairKey = [senderId, data.to].sort().join('_');
+      const session = active1on1Calls.get(pairKey);
+      if (session) {
+        active1on1Calls.delete(pairKey);
+        const endedAt = new Date();
+        const duration = session.connectedAt
+          ? Math.max(1, Math.round((endedAt.getTime() - session.connectedAt.getTime()) / 1000))
+          : (data.duration || 0);
+        const status = session.connectedAt ? 'completed' : 'missed';
+
+        const record = store.calls.get(session.callId);
+        if (record) {
+          record.status = status;
+          record.endedAt = endedAt;
+          record.duration = duration;
+          store.saveToFile();
+        }
+
+        if (session.chatId) {
+          const chat = store.chats.get(session.chatId);
+          if (chat) {
+            let content = '';
+            if (status === 'completed') {
+              const mins = Math.floor(duration / 60);
+              const secs = duration % 60;
+              const durText = `${mins}:${secs.toString().padStart(2, '0')}`;
+              content = `${session.isVideo ? '📹 Video call' : '📞 Voice call'} (${durText})`;
+            } else {
+              content = `📞 Missed ${session.isVideo ? 'video' : 'voice'} call`;
+            }
+
+            const callMsg: MessageData = {
+              id: `msg-${uuidv4()}`,
+              chatId: chat.id,
+              senderId: session.callerId,
+              type: 'call',
+              content,
+              metadata: JSON.stringify({
+                callId: session.callId,
+                type: session.isVideo ? 'video' : 'voice',
+                status,
+                duration,
+                startedAt: session.startedAt,
+              }),
+              status: 'sent',
+              createdAt: endedAt,
+            };
+            store.messages.set(callMsg.id, callMsg);
+            chat.lastMessageAt = endedAt;
+            store.saveToFile();
+
+            const enrichedChat = getEnrichedChat(chat.id) || chat;
+            [session.callerId, session.receiverId].forEach((mId) => {
+              io.to(`user_${mId}`).emit('new_message', { message: callMsg, chat: enrichedChat });
+              userSocketMap.get(mId)?.forEach((sId) => io.to(sId).emit('new_message', { message: callMsg, chat: enrichedChat }));
+            });
+          }
+        }
+      }
+
       io.to(`user_${data.to}`).emit('call_ended');
       const callerSockets = userSocketMap.get(data.to);
       if (callerSockets) {
@@ -366,6 +539,68 @@ export function setupSocketHandlers(io: Server) {
             }
 
             io.emit('user_status_changed', { userId, isOnline: false, lastSeen: new Date() });
+          }
+        }
+
+        // Clean up from active 1-on-1 calls
+        for (const [pairKey, session] of active1on1Calls.entries()) {
+          if (session.callerId === userId || session.receiverId === userId) {
+            active1on1Calls.delete(pairKey);
+            const otherId = session.callerId === userId ? session.receiverId : session.callerId;
+            io.to(`user_${otherId}`).emit('call_ended');
+            userSocketMap.get(otherId)?.forEach((sId) => io.to(sId).emit('call_ended'));
+
+            const endedAt = new Date();
+            const duration = session.connectedAt
+              ? Math.max(1, Math.round((endedAt.getTime() - session.connectedAt.getTime()) / 1000))
+              : 0;
+            const status = session.connectedAt ? 'completed' : 'missed';
+
+            const record = store.calls.get(session.callId);
+            if (record) {
+              record.status = status;
+              record.endedAt = endedAt;
+              record.duration = duration;
+              store.saveToFile();
+            }
+
+            if (session.chatId) {
+              const chat = store.chats.get(session.chatId);
+              if (chat) {
+                const mins = Math.floor(duration / 60);
+                const secs = duration % 60;
+                const durText = `${mins}:${secs.toString().padStart(2, '0')}`;
+                const content = status === 'completed'
+                  ? `${session.isVideo ? '📹 Video call' : '📞 Voice call'} (${durText})`
+                  : `📞 Missed ${session.isVideo ? 'video' : 'voice'} call`;
+
+                const callMsg: MessageData = {
+                  id: `msg-${uuidv4()}`,
+                  chatId: chat.id,
+                  senderId: session.callerId,
+                  type: 'call',
+                  content,
+                  metadata: JSON.stringify({
+                    callId: session.callId,
+                    type: session.isVideo ? 'video' : 'voice',
+                    status,
+                    duration,
+                    startedAt: session.startedAt,
+                  }),
+                  status: 'sent',
+                  createdAt: endedAt,
+                };
+                store.messages.set(callMsg.id, callMsg);
+                chat.lastMessageAt = endedAt;
+                store.saveToFile();
+
+                const enrichedChat = getEnrichedChat(chat.id) || chat;
+                [session.callerId, session.receiverId].forEach((mId) => {
+                  io.to(`user_${mId}`).emit('new_message', { message: callMsg, chat: enrichedChat });
+                  userSocketMap.get(mId)?.forEach((sId) => io.to(sId).emit('new_message', { message: callMsg, chat: enrichedChat }));
+                });
+              }
+            }
           }
         }
 

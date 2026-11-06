@@ -97,6 +97,7 @@ class InMemoryStore {
         labels: Array.from(this.labels.entries()),
         chatLabels: Array.from(this.chatLabels.entries()).map(([k, set]) => [k, Array.from(set)]),
         statuses: Array.from(this.statuses.entries()),
+        calls: Array.from(this.calls.entries()),
         userContacts: Array.from(this.userContacts.entries()).map(([k, set]) => [k, Array.from(set)]),
       };
       fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf8');
@@ -190,6 +191,17 @@ class InMemoryStore {
 
       this.userContacts = new Map(
         (data.userContacts || []).map(([k, arr]: [string, string[]]) => [k, new Set(arr)])
+      );
+
+      this.calls = new Map(
+        (data.calls || []).map(([k, v]: [string, any]) => [
+          k,
+          {
+            ...v,
+            startedAt: v.startedAt ? new Date(v.startedAt) : new Date(),
+            endedAt: v.endedAt ? new Date(v.endedAt) : undefined,
+          },
+        ])
       );
 
       // Clean up legacy demo accounts

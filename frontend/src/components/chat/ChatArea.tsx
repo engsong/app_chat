@@ -20,10 +20,13 @@ import {
   Download,
   Trash2,
   ExternalLink,
-  Maximize2
+  Maximize2,
+  PhoneCall,
+  PhoneMissed
 } from 'lucide-react';
 import { Chat, Message, User, Product, QuickReply } from '../../types/index.js';
 import { soundEffects } from '../../utils/audioTones.js';
+import { EmojiPicker } from './EmojiPicker.js';
 
 interface ChatAreaProps {
   chat: Chat;
@@ -31,7 +34,7 @@ interface ChatAreaProps {
   currentUser: User;
   onSendMessage: (
     content: string,
-    type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product',
+    type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product' | 'call',
     metadata?: string,
     mediaUrl?: string
   ) => void;
@@ -65,6 +68,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 }) => {
   const [inputText, setInputText] = useState('');
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showQuickReplyPicker, setShowQuickReplyPicker] = useState(false);
   const [filteredQuickReplies, setFilteredQuickReplies] = useState<QuickReply[]>([]);
   
@@ -141,6 +145,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     onSendMessage(inputText.trim(), 'text');
     setInputText('');
     setShowQuickReplyPicker(false);
+    setShowEmojiPicker(false);
     onStopTyping();
     soundEffects.playMessagePop();
   };
@@ -158,7 +163,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
-      onSendMessage(file.name || 'Photo', 'image', undefined, dataUrl);
+      onSendMessage('', 'image', undefined, dataUrl);
       soundEffects.playMessagePop();
     };
     reader.readAsDataURL(file);
@@ -500,9 +505,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         </span>
                       </div>
                     </div>
-                    {msg.content && msg.content !== 'Photo' && (
-                      <p className="text-sm text-white pt-1">{msg.content}</p>
-                    )}
+                    {msg.content &&
+                      msg.content.trim() !== '' &&
+                      msg.content.trim() !== 'Photo' &&
+                      !/\.(jpe?g|png|gif|webp|bmp|heic|svg)$/i.test(msg.content.trim()) &&
+                      !/^Screenshot[_\s\d\-.]+/i.test(msg.content.trim()) &&
+                      !/^\d{6,}[_\d\-.]*\.(jpe?g|png|gif|webp)$/i.test(msg.content.trim()) && (
+                        <p className="text-sm text-white pt-1">{msg.content}</p>
+                      )}
                   </div>
                 )}
 
@@ -636,6 +646,70 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     } catch (e) {
                       return <p className="text-sm">{msg.content}</p>;
                     }
+                  })()
+                )}
+
+                {/* 7. Call Event Message */}
+                {msg.type === 'call' && (
+                  (() => {
+                    let callMeta: { type?: 'voice' | 'video'; status?: string; duration?: number } = {};
+                    try {
+                      if (msg.metadata) callMeta = JSON.parse(msg.metadata);
+                    } catch (e) {}
+
+                    const isVideo = callMeta.type === 'video' || msg.content.toLowerCase().includes('video');
+                    const isMissed =
+                      callMeta.status === 'missed' ||
+                      callMeta.status === 'declined' ||
+                      msg.content.toLowerCase().includes('missed') ||
+                      msg.content.toLowerCase().includes('declined');
+                    const durationSec = callMeta.duration || 0;
+                    const mins = Math.floor(durationSec / 60);
+                    const secs = durationSec % 60;
+                    const durStr = durationSec > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : '';
+
+                    return (
+                      <div className="flex items-center gap-3 py-1 min-w-[200px] sm:min-w-[230px]">
+                        <div
+                          className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                            isMissed ? 'bg-rose-500/20 text-rose-400' : 'bg-[#00a884]/20 text-[#00a884]'
+                          }`}
+                        >
+                          {isVideo ? (
+                            <Video className="w-5 h-5" />
+                          ) : isMissed ? (
+                            <PhoneMissed className="w-5 h-5" />
+                          ) : (
+                            <PhoneCall className="w-5 h-5" />
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-white truncate">
+                            {isVideo ? 'Video Call' : 'Voice Call'}
+                          </p>
+                          <p className="text-[11px] text-[#8696a0] flex items-center gap-1.5">
+                            <span className={isMissed ? 'text-rose-400 font-medium' : 'text-[#00a884] font-medium'}>
+                              {isMissed
+                                ? callMeta.status === 'declined'
+                                  ? 'Declined'
+                                  : 'Missed'
+                                : 'Completed'}
+                            </span>
+                            {durStr && <span>• {durStr}</span>}
+                          </p>
+                        </div>
+
+                        {/* Quick Call Back Button */}
+                        <button
+                          onClick={() => (isVideo ? onStartVideoCall() : onStartAudioCall())}
+                          className="p-2 rounded-full bg-[#111b21] hover:bg-[#00a884] text-[#8696a0] hover:text-white transition-colors flex-shrink-0 shadow-sm"
+                          title={`Call back (${isVideo ? 'Video' : 'Voice'})`}
+                        >
+                          {isVideo ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    );
                   })()
                 )}
 
@@ -801,7 +875,30 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               )}
             </div>
 
-            <button className="hidden sm:flex p-2 sm:p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors flex-shrink-0">
+            {/* Emoji Picker Popover */}
+            {showEmojiPicker && (
+              <EmojiPicker
+                onSelectEmoji={(emoji) => {
+                  setInputText((prev) => prev + emoji);
+                }}
+                onClose={() => setShowEmojiPicker(false)}
+              />
+            )}
+
+            {/* Emoji Button (Visible on both Mobile & Desktop) */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowEmojiPicker((prev) => !prev);
+                setShowAttachMenu(false);
+              }}
+              className={`p-2 sm:p-2.5 rounded-full transition-colors flex-shrink-0 ${
+                showEmojiPicker
+                  ? 'text-[#00a884] bg-[#2a3942]'
+                  : 'text-[#8696a0] hover:text-white hover:bg-[#374248]'
+              }`}
+              title="Insert emoji"
+            >
               <Smile className="w-5 h-5" />
             </button>
 
