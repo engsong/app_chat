@@ -86,11 +86,37 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   // Image lightbox modal
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
-  // File input refs
   const imageInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<any>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+
+  // Click outside to dismiss attach menu and emoji picker
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (
+        attachMenuRef.current &&
+        !attachMenuRef.current.contains(target) &&
+        emojiPickerRef.current &&
+        !emojiPickerRef.current.contains(target)
+      ) {
+        setShowAttachMenu(false);
+        setShowEmojiPicker(false);
+      }
+    };
+
+    if (showAttachMenu || showEmojiPicker) {
+      document.addEventListener('mousedown', handleOutsideClick);
+      document.addEventListener('touchstart', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, [showAttachMenu, showEmojiPicker]);
 
   // Auto-scroll to latest message safely inside the container (prevents whole window from scrolling)
   useEffect(() => {
@@ -758,8 +784,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
       )}
 
+      {/* Click-outside backdrop for attach menu & emoji picker */}
+      {(showAttachMenu || showEmojiPicker) && (
+        <div
+          className="fixed inset-0 z-30 bg-transparent"
+          onClick={() => {
+            setShowAttachMenu(false);
+            setShowEmojiPicker(false);
+          }}
+        />
+      )}
+
       {/* 4. Chat Input Bar */}
-      <div className="flex-shrink-0 px-2 sm:px-4 py-2.5 bg-[#202c33] border-t border-[#2a3942] flex items-center gap-1.5 sm:gap-2 z-20 pb-[max(0.6rem,env(safe-area-inset-bottom))]">
+      <div className="relative flex-shrink-0 px-2 sm:px-4 py-2.5 bg-[#202c33] border-t border-[#2a3942] flex items-center gap-1.5 sm:gap-2 z-40 pb-[max(0.6rem,env(safe-area-inset-bottom))]">
         {isRecording ? (
           // Recording Audio Bar
           <div className="flex-1 flex items-center justify-between bg-[#111b21] rounded-xl px-3 py-2 border border-[#2a3942] animate-fade-in">
@@ -791,10 +828,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           // Standard Input Bar
           <>
             {/* Attach Menu Toggle */}
-            <div className="relative flex-shrink-0">
+            <div ref={attachMenuRef} className="relative flex-shrink-0 z-50">
               <button
-                onClick={() => setShowAttachMenu(!showAttachMenu)}
-                className="p-2 sm:p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors"
+                type="button"
+                onClick={() => {
+                  setShowAttachMenu(!showAttachMenu);
+                  setShowEmojiPicker(false);
+                }}
+                className={`p-2 sm:p-2.5 rounded-full transition-colors ${
+                  showAttachMenu ? 'text-[#00a884] bg-[#2a3942]' : 'text-[#8696a0] hover:text-white hover:bg-[#374248]'
+                }`}
                 title="Attach photo, video, location, document, or catalog product"
               >
                 <Paperclip className="w-5 h-5" />
@@ -802,9 +845,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
               {/* Attach Flyout */}
               {showAttachMenu && (
-                <div className="absolute bottom-12 left-0 bg-[#202c33] border border-[#2a3942] rounded-2xl p-2 shadow-2xl flex flex-col gap-1 w-52 z-30 animate-scale-up">
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute bottom-full left-0 mb-3 bg-[#202c33] border border-[#2a3942] rounded-2xl p-2 shadow-2xl flex flex-col gap-1 w-52 z-50 animate-scale-up"
+                >
                   {/* Photo & Video */}
                   <button
+                    type="button"
                     onClick={() => {
                       imageInputRef.current?.click();
                       setShowAttachMenu(false);
@@ -819,7 +866,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                   {/* Location */}
                   <button
-                    onClick={handleSendLocation}
+                    type="button"
+                    onClick={() => {
+                      handleSendLocation();
+                      setShowAttachMenu(false);
+                    }}
                     className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-[#111b21] text-xs text-white"
                   >
                     <div className="w-7 h-7 rounded-full bg-rose-500/20 flex items-center justify-center text-rose-400">
@@ -830,6 +881,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                   {/* Document */}
                   <button
+                    type="button"
                     onClick={() => {
                       docInputRef.current?.click();
                       setShowAttachMenu(false);
@@ -844,6 +896,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                   {/* Catalog Product */}
                   <button
+                    type="button"
                     onClick={() => {
                       onOpenCatalog();
                       setShowAttachMenu(false);
@@ -858,6 +911,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                   {/* Quick Reply */}
                   <button
+                    type="button"
                     onClick={() => {
                       setInputText('/');
                       setShowQuickReplyPicker(true);
@@ -877,12 +931,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
             {/* Emoji Picker Popover */}
             {showEmojiPicker && (
-              <EmojiPicker
-                onSelectEmoji={(emoji) => {
-                  setInputText((prev) => prev + emoji);
-                }}
-                onClose={() => setShowEmojiPicker(false)}
-              />
+              <div
+                ref={emojiPickerRef}
+                onClick={(e) => e.stopPropagation()}
+                className="absolute bottom-full left-2 right-2 sm:left-4 sm:right-auto sm:w-80 mb-3 z-50"
+              >
+                <EmojiPicker
+                  onSelectEmoji={(emoji) => {
+                    setInputText((prev) => prev + emoji);
+                  }}
+                  onClose={() => setShowEmojiPicker(false)}
+                />
+              </div>
             )}
 
             {/* Emoji Button (Visible on both Mobile & Desktop) */}

@@ -72,7 +72,10 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelectEmoji, onClose
   const currentCategory = EMOJI_CATEGORIES.find((c) => c.id === activeCategory) || EMOJI_CATEGORIES[0];
 
   return (
-    <div className="absolute bottom-full left-0 right-0 sm:left-4 sm:right-auto sm:w-80 mb-2 bg-[#202c33] border border-[#2a3942] rounded-2xl shadow-2xl overflow-hidden z-40 animate-scale-up">
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className="bg-[#202c33] border border-[#2a3942] rounded-2xl shadow-2xl overflow-hidden z-40 animate-scale-up w-full"
+    >
       {/* Category Tabs Header */}
       <div className="flex items-center justify-between px-3 py-2 bg-[#111b21] border-b border-[#2a3942]">
         <div className="flex items-center gap-1">
