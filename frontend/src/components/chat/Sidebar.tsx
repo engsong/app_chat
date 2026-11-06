@@ -25,6 +25,7 @@ import {
   subscribeUserToWebPush,
   sendTestPushNotification,
 } from '../../utils/notifications.js';
+import { NotificationHelpModal } from './NotificationHelpModal.js';
 
 interface SidebarProps {
   chats: Chat[];
@@ -77,12 +78,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (typeof window === 'undefined') return false;
     return isNotificationSupported() && getNotificationPermission() !== 'granted';
   });
+  const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
 
   const handleEnableNotifications = async () => {
     const res = await requestNotificationPermission();
     setNotifPermission(res);
     if (res === 'granted') {
       setShowNotifBanner(false);
+      setShowHelpModal(false);
       const subscribed = await subscribeUserToWebPush(currentUser.id, true);
       if (subscribed) {
         await sendTestPushNotification(currentUser.id);
@@ -91,13 +94,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
         alert('✅ Notifications enabled for IChat.');
       }
     } else if (res === 'denied') {
-      alert('Notifications are blocked by your browser settings. Please tap the lock icon next to https://chat.on-excapp.app in your address bar and allow Notifications.');
+      setShowHelpModal(true);
+    }
+  };
+
+  const handleCheckPermissionFromModal = async () => {
+    const current = getNotificationPermission();
+    setNotifPermission(current);
+    if (current === 'granted') {
+      setShowHelpModal(false);
       setShowNotifBanner(false);
+      const subscribed = await subscribeUserToWebPush(currentUser.id, true);
+      if (subscribed) {
+        await sendTestPushNotification(currentUser.id);
+        alert('🎉 Awesome! Notifications are now active. A test notification was sent to your screen.');
+      } else {
+        alert('🎉 Notifications are now active!');
+      }
+    } else {
+      alert('Notifications are still blocked in Chrome settings. Please follow Step 1-3 above to allow chat.on-excapp.app.');
     }
   };
 
   const handleBellClick = async () => {
-    if (notifPermission !== 'granted') {
+    if (notifPermission === 'denied') {
+      setShowHelpModal(true);
+    } else if (notifPermission !== 'granted') {
       await handleEnableNotifications();
     } else {
       const ok = await sendTestPushNotification(currentUser.id);
@@ -579,6 +601,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       )}
+
+      {/* Notification Help Guide Modal for unblocking permissions */}
+      <NotificationHelpModal
+        isOpen={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+        onCheckPermission={handleCheckPermissionFromModal}
+      />
     </div>
   );
 };
