@@ -63,12 +63,17 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 // Subscribe user device to background Web Push protocol (wakes device on lock screen)
-export async function subscribeUserToWebPush(userId: string): Promise<boolean> {
+export async function subscribeUserToWebPush(userId: string, allowPrompt: boolean = false): Promise<boolean> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
     return false;
   }
 
-  if (Notification.permission !== 'granted') {
+  let perm = Notification.permission;
+  if (perm === 'default' && allowPrompt) {
+    perm = await requestNotificationPermission();
+  }
+
+  if (perm !== 'granted') {
     return false;
   }
 
@@ -103,6 +108,20 @@ export async function subscribeUserToWebPush(userId: string): Promise<boolean> {
     console.warn('[Notification] Failed to subscribe to Web Push:', err);
   }
   return false;
+}
+
+// Trigger immediate test push notification on user's device
+export async function sendTestPushNotification(userId: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/push/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+    return res.ok;
+  } catch (_) {
+    return false;
+  }
 }
 
 // Show message notification

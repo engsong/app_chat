@@ -56,6 +56,13 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
         throw new Error(data.error || 'Failed to log in.');
       }
 
+      // Request permission on user login interaction if not decided yet
+      try {
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+          await Notification.requestPermission();
+        }
+      } catch (_) {}
+
       onLoginSuccess(data.user);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error connecting to authentication service.');

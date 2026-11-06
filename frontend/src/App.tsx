@@ -646,6 +646,7 @@ export const App: React.FC = () => {
       .then((r) => r.json())
       .then((data) => setAllUsers(data))
       .catch(() => {});
+    subscribeUserToWebPush(user.id, true).catch(() => {});
   };
 
   const handleLogout = () => {

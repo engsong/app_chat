@@ -14,6 +14,7 @@ import {
   Trash2,
   ArrowLeft,
   Bell,
+  BellOff,
 } from 'lucide-react';
 import { Chat, User, Label } from '../../types/index.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
@@ -21,6 +22,8 @@ import {
   requestNotificationPermission,
   isNotificationSupported,
   getNotificationPermission,
+  subscribeUserToWebPush,
+  sendTestPushNotification,
 } from '../../utils/notifications.js';
 
 interface SidebarProps {
@@ -67,15 +70,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedChatIds, setSelectedChatIds] = useState<string[]>([]);
   const [showDeleteChatsModal, setShowDeleteChatsModal] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() => {
+    return isNotificationSupported() ? getNotificationPermission() : 'denied';
+  });
   const [showNotifBanner, setShowNotifBanner] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
-    return isNotificationSupported() && getNotificationPermission() === 'default';
+    return isNotificationSupported() && getNotificationPermission() !== 'granted';
   });
 
   const handleEnableNotifications = async () => {
     const res = await requestNotificationPermission();
-    if (res !== 'default') {
+    setNotifPermission(res);
+    if (res === 'granted') {
       setShowNotifBanner(false);
+      const subscribed = await subscribeUserToWebPush(currentUser.id, true);
+      if (subscribed) {
+        await sendTestPushNotification(currentUser.id);
+        alert('✅ Notifications enabled! A test notification was sent to your device.');
+      } else {
+        alert('✅ Notifications enabled for IChat.');
+      }
+    } else if (res === 'denied') {
+      alert('Notifications are blocked by your browser settings. Please tap the lock icon next to https://chat.on-excapp.app in your address bar and allow Notifications.');
+      setShowNotifBanner(false);
+    }
+  };
+
+  const handleBellClick = async () => {
+    if (notifPermission !== 'granted') {
+      await handleEnableNotifications();
+    } else {
+      const ok = await sendTestPushNotification(currentUser.id);
+      if (ok) {
+        alert('🔔 Test notification sent! Check your notification tray or lock screen.');
+      } else {
+        await subscribeUserToWebPush(currentUser.id, true);
+        await sendTestPushNotification(currentUser.id);
+        alert('🔔 Notifications refreshed! Test notification sent.');
+      }
     }
   };
 
@@ -221,6 +253,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Action Icons */}
           <div className="flex items-center gap-1 text-[#aebac1]">
+            {/* Notification Bell Button (Test / Enable) */}
+            <button
+              onClick={handleBellClick}
+              className={`p-2 rounded-full hover:bg-[#374248] transition-colors relative ${
+                notifPermission === 'granted' ? 'text-[#00a884]' : 'text-amber-400'
+              }`}
+              title={
+                notifPermission === 'granted'
+                  ? 'Notifications active (Tap to send test alert)'
+                  : 'Notifications disabled (Tap to enable lock screen alerts)'
+              }
+            >
+              {notifPermission === 'granted' ? (
+                <Bell className="w-5 h-5" />
+              ) : (
+                <BellOff className="w-5 h-5 animate-pulse" />
+              )}
+            </button>
+
             {/* Status / Stories */}
             <button
               onClick={onOpenStatus}

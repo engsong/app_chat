@@ -27,8 +27,12 @@ export async function sendPushToUser(
     requireInteraction?: boolean;
   }
 ) {
+  console.log(`[Push] Attempting to send push to user ${userId} (${payload.title})`);
   const subs = store.pushSubscriptions.get(userId);
-  if (!subs || subs.length === 0) return;
+  if (!subs || subs.length === 0) {
+    console.warn(`[Push] User ${userId} has 0 push subscriptions registered. Push could not be sent.`);
+    return;
+  }
 
   const pushPayload = JSON.stringify({
     title: payload.title,
@@ -45,6 +49,7 @@ export async function sendPushToUser(
     try {
       await webpush.sendNotification(sub, pushPayload);
       remainingSubs.push(sub);
+      console.log(`[Push] Push notification delivered successfully to user ${userId}`);
     } catch (err: any) {
       if (err.statusCode === 404 || err.statusCode === 410) {
         console.log(`[Push] Subscription expired/unregistered for user ${userId}`);

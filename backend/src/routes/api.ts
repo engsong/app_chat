@@ -11,7 +11,7 @@ import {
   broadcastUserUpdated,
 } from '../sockets/socketHandler.js';
 
-import { VAPID_PUBLIC_KEY } from '../services/pushService.js';
+import { VAPID_PUBLIC_KEY, sendPushToUser } from '../services/pushService.js';
 
 export const apiRouter = Router();
 
@@ -32,8 +32,57 @@ apiRouter.post('/push/subscribe', (req, res) => {
   store.pushSubscriptions.set(userId, filtered);
   store.saveToFile();
 
-  console.log(`[Push] User ${userId} registered push subscription (Total: ${filtered.length})`);
+  console.log(`[Push] User ${userId} registered push subscription (Total devices: ${filtered.length})`);
   res.json({ success: true, count: filtered.length });
+});
+
+// Test push notification endpoint (trigger immediately to verify lock screen delivery)
+apiRouter.post('/push/test', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+  const subs = store.pushSubscriptions.get(userId);
+  if (!subs || subs.length === 0) {
+    return res.status(404).json({
+      error: 'No active push subscriptions found for this user. Please tap "Turn On" in the app first.',
+      count: 0,
+    });
+  }
+
+  await sendPushToUser(userId, {
+    title: 'IChat Notification Test',
+    body: '🎉 Notifications are working! You will now receive calls and messages on your lock screen.',
+    icon: '/logo.png',
+    tag: 'test-notification',
+  });
+
+  res.json({ success: true, count: subs.length, message: 'Test notification sent' });
+});
+
+// Get push status for a user
+apiRouter.get('/push/status', (req, res) => {
+  const userId = req.query.userId as string;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  const subs = store.pushSubscriptions.get(userId) || [];
+  res.json({ hasSubscription: subs.length > 0, count: subs.length });
+});
+
+// Debug endpoint to view active push subscriptions count across system
+apiRouter.get('/push/debug', (req, res) => {
+  const result: any = {};
+  for (const [uId, subs] of store.pushSubscriptions.entries()) {
+    const user = store.users.get(uId);
+    result[uId] = {
+      name: user?.name,
+      phone: user?.phone,
+      subscriptionCount: subs.length,
+      endpoints: subs.map((s) => s.endpoint?.slice(0, 45) + '...'),
+    };
+  }
+  res.json({
+    totalUsersWithPush: store.pushSubscriptions.size,
+    subscriptions: result,
+  });
 });
 
 // ==========================================
