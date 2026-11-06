@@ -16,8 +16,14 @@ if [ -f "./nginx/chat.on-excapp.app.conf" ]; then
   nginx -t && systemctl reload nginx || true
 fi
 
-echo "🐳 Building and starting Docker containers..."
-docker compose up -d --build --remove-orphans
+echo "🐳 Building Docker images..."
+docker compose build
+
+echo "🔄 Removing previous container instances to prevent conflict..."
+docker rm -f $(docker ps -aq --filter "name=whatsapp_frontend") $(docker ps -aq --filter "name=whatsapp_backend") 2>/dev/null || true
+
+echo "🚀 Starting Docker containers..."
+docker compose up -d --remove-orphans
 
 echo "🧹 Cleaning up old unused Docker images..."
 docker image prune -f
