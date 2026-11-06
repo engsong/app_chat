@@ -12,10 +12,16 @@ import {
   X,
   PhoneCall,
   Trash2,
-  ArrowLeft
+  ArrowLeft,
+  Bell,
 } from 'lucide-react';
 import { Chat, User, Label } from '../../types/index.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
+import {
+  requestNotificationPermission,
+  isNotificationSupported,
+  getNotificationPermission,
+} from '../../utils/notifications.js';
 
 interface SidebarProps {
   chats: Chat[];
@@ -61,6 +67,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedChatIds, setSelectedChatIds] = useState<string[]>([]);
   const [showDeleteChatsModal, setShowDeleteChatsModal] = useState(false);
+  const [showNotifBanner, setShowNotifBanner] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return isNotificationSupported() && getNotificationPermission() === 'default';
+  });
+
+  const handleEnableNotifications = async () => {
+    const res = await requestNotificationPermission();
+    if (res !== 'default') {
+      setShowNotifBanner(false);
+    }
+  };
+
   const chatLongPressTimerRef = useRef<any>(null);
   const chatTouchMovedRef = useRef(false);
 
@@ -295,6 +313,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+
+      {/* Notification Prompt Banner if permission not yet granted */}
+      {showNotifBanner && (
+        <div className="bg-[#182229] border-b border-[#00a884]/30 px-3 py-2 flex items-center justify-between text-xs animate-fade-in flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0 pr-2">
+            <Bell className="w-4 h-4 text-[#00a884] flex-shrink-0" />
+            <span className="text-[#d1d7db] truncate">Get alerts for calls & messages</span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleEnableNotifications}
+              className="px-2.5 py-1 bg-[#00a884] text-white rounded-md font-medium text-[11px] hover:bg-[#008f6f] transition-colors shadow-sm"
+            >
+              Turn On
+            </button>
+            <button
+              onClick={() => setShowNotifBanner(false)}
+              className="text-[#8696a0] hover:text-white p-1"
+              title="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 3. Chats List */}
       <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-[#202c33]">

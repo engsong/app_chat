@@ -109,6 +109,7 @@ interface ActiveCallSession {
   chatId?: string;
   startedAt: Date;
   connectedAt?: Date;
+  timeoutHandle?: NodeJS.Timeout;
 }
 
 export function setupSocketHandlers(io: Server) {
@@ -345,6 +346,67 @@ export function setupSocketHandlers(io: Server) {
       store.calls.set(callId, newCall);
       store.saveToFile();
 
+      // Clear any prior pending timeout for this pair
+      const existingSession = active1on1Calls.get(pairKey);
+      if (existingSession?.timeoutHandle) {
+        clearTimeout(existingSession.timeoutHandle);
+      }
+
+      // Server-side 1-minute (60 seconds) auto-decline timeout
+      const timeoutHandle = setTimeout(() => {
+        const session = active1on1Calls.get(pairKey);
+        if (session && session.callId === callId && !session.connectedAt) {
+          console.log(`[Call] 1-minute timeout reached for call ${callId}. Auto declining as missed call.`);
+          active1on1Calls.delete(pairKey);
+
+          const endedAt = new Date();
+          const record = store.calls.get(callId);
+          if (record && record.status === 'ringing') {
+            record.status = 'missed';
+            record.endedAt = endedAt;
+            record.duration = 0;
+            store.saveToFile();
+          }
+
+          const rejectPayload = { reason: 'No answer (1 minute timeout)', callId };
+          io.to(`user_${data.from}`).emit('call_rejected', rejectPayload);
+          io.to(`user_${data.userToCall}`).emit('call_rejected', rejectPayload);
+          userSocketMap.get(data.from)?.forEach((sId) => io.to(sId).emit('call_rejected', rejectPayload));
+          userSocketMap.get(data.userToCall)?.forEach((sId) => io.to(sId).emit('call_rejected', rejectPayload));
+
+          if (targetChatId) {
+            const chat = store.chats.get(targetChatId);
+            if (chat) {
+              const callMsg: MessageData = {
+                id: `msg-${uuidv4()}`,
+                chatId: chat.id,
+                senderId: data.from,
+                type: 'call',
+                content: data.isVideo ? '📹 Missed video call' : '📞 Missed voice call',
+                metadata: JSON.stringify({
+                  callId,
+                  type: data.isVideo ? 'video' : 'voice',
+                  status: 'missed',
+                  duration: 0,
+                  startedAt,
+                }),
+                status: 'sent',
+                createdAt: endedAt,
+              };
+              store.messages.set(callMsg.id, callMsg);
+              chat.lastMessageAt = endedAt;
+              store.saveToFile();
+
+              const enrichedChat = getEnrichedChat(chat.id) || chat;
+              [data.from, data.userToCall].forEach((mId) => {
+                io.to(`user_${mId}`).emit('new_message', { message: callMsg, chat: enrichedChat });
+                userSocketMap.get(mId)?.forEach((sId) => io.to(sId).emit('new_message', { message: callMsg, chat: enrichedChat }));
+              });
+            }
+          }
+        }
+      }, 60000);
+
       // Track active session in memory
       active1on1Calls.set(pairKey, {
         callId,
@@ -353,6 +415,7 @@ export function setupSocketHandlers(io: Server) {
         isVideo: !!data.isVideo,
         chatId: targetChatId,
         startedAt,
+        timeoutHandle,
       });
 
       const targetSockets = userSocketMap.get(data.userToCall);
@@ -381,6 +444,10 @@ export function setupSocketHandlers(io: Server) {
         const pairKey = [senderId, data.to].sort().join('_');
         const session = active1on1Calls.get(pairKey);
         if (session) {
+          if (session.timeoutHandle) {
+            clearTimeout(session.timeoutHandle);
+            delete session.timeoutHandle;
+          }
           session.connectedAt = new Date();
           const record = store.calls.get(session.callId);
           if (record) {
@@ -406,6 +473,9 @@ export function setupSocketHandlers(io: Server) {
       const pairKey = [senderId, data.to].sort().join('_');
       const session = active1on1Calls.get(pairKey);
       if (session) {
+        if (session.timeoutHandle) {
+          clearTimeout(session.timeoutHandle);
+        }
         active1on1Calls.delete(pairKey);
         const endedAt = new Date();
         const record = store.calls.get(session.callId);
@@ -465,6 +535,9 @@ export function setupSocketHandlers(io: Server) {
       const pairKey = [senderId, data.to].sort().join('_');
       const session = active1on1Calls.get(pairKey);
       if (session) {
+        if (session.timeoutHandle) {
+          clearTimeout(session.timeoutHandle);
+        }
         active1on1Calls.delete(pairKey);
         const endedAt = new Date();
         const duration = session.connectedAt
@@ -614,6 +687,10 @@ export function setupSocketHandlers(io: Server) {
       socket.to(`group-call-${groupId}`).emit('user_left_group_call', { userId });
     });
 
+    socket.on('ping_check', () => {
+      socket.emit('pong_check', { time: Date.now() });
+    });
+
     // 5. Disconnect handling
     socket.on('disconnect', () => {
       const userId = socketUserMap.get(socket.id);
@@ -640,6 +717,9 @@ export function setupSocketHandlers(io: Server) {
         // Clean up from active 1-on-1 calls
         for (const [pairKey, session] of active1on1Calls.entries()) {
           if (session.callerId === userId || session.receiverId === userId) {
+            if (session.timeoutHandle) {
+              clearTimeout(session.timeoutHandle);
+            }
             active1on1Calls.delete(pairKey);
             const otherId = session.callerId === userId ? session.receiverId : session.callerId;
             io.to(`user_${otherId}`).emit('call_ended');

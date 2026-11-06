@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Socket } from 'socket.io-client';
 import { soundEffects } from '../utils/audioTones.js';
+import { showCallNotification, closeCallNotification } from '../utils/notifications.js';
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
@@ -56,6 +57,8 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
   const groupStreamsRef = useRef<Map<string, MediaStream>>(new Map());     // userId -> MediaStream
   const callPartnerIdRef = useRef<string | null>(null);
   const timerRef = useRef<any>(null);
+  const callTimeoutRef = useRef<any>(null);          // 1-minute timeout for outgoing ringing
+  const incomingCallTimeoutRef = useRef<any>(null);  // 1-minute auto-decline for incoming calls
 
   // Initialize Local Media Stream
   const getMediaStream = async (video: boolean): Promise<MediaStream> => {
@@ -81,6 +84,17 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
   const cleanupCall = useCallback(() => {
     soundEffects.stopRingtone();
     soundEffects.playDisconnectTone();
+    closeCallNotification();
+
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+    }
+
+    if (incomingCallTimeoutRef.current) {
+      clearTimeout(incomingCallTimeoutRef.current);
+      incomingCallTimeoutRef.current = null;
+    }
 
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -170,6 +184,16 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
+    // Start 1-minute (60 seconds) outgoing ringing timeout - auto decline if no answer
+    if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
+    callTimeoutRef.current = setTimeout(() => {
+      console.log('[WebRTC] Outgoing call timed out after 1 minute (no answer)');
+      if (socket && targetUserId) {
+        socket.emit('end_call', { to: targetUserId, reason: 'no_answer' });
+      }
+      cleanupCall();
+    }, 60000);
+
     socket.emit('call_user', {
       userToCall: targetUserId,
       signalData: offer,
@@ -183,6 +207,12 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
 
   const answerCall = async () => {
     if (!socket || !incomingCall) return;
+
+    if (incomingCallTimeoutRef.current) {
+      clearTimeout(incomingCallTimeoutRef.current);
+      incomingCallTimeoutRef.current = null;
+    }
+    closeCallNotification();
 
     soundEffects.stopRingtone();
     soundEffects.playConnectTone();
@@ -224,6 +254,12 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
   };
 
   const rejectCall = () => {
+    if (incomingCallTimeoutRef.current) {
+      clearTimeout(incomingCallTimeoutRef.current);
+      incomingCallTimeoutRef.current = null;
+    }
+    closeCallNotification();
+
     if (socket && incomingCall) {
       socket.emit('reject_call', { to: incomingCall.from });
     }
@@ -232,6 +268,16 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
   };
 
   const endCall = () => {
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+    }
+    if (incomingCallTimeoutRef.current) {
+      clearTimeout(incomingCallTimeoutRef.current);
+      incomingCallTimeoutRef.current = null;
+    }
+    closeCallNotification();
+
     if (socket && callPartnerIdRef.current) {
       socket.emit('end_call', { to: callPartnerIdRef.current, duration: callDuration });
     }
@@ -341,11 +387,36 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
       console.log('[WebRTC] Incoming call from:', data.callerName);
       setIncomingCall(data);
       soundEffects.startIncomingRingtone();
+
+      // Show native system & browser notification for incoming call
+      showCallNotification({
+        callerName: data.callerName,
+        isVideo: data.isVideo,
+        callerAvatar: data.callerAvatar,
+      });
+
+      // 1-minute (60 seconds) auto-decline timeout for incoming call
+      if (incomingCallTimeoutRef.current) clearTimeout(incomingCallTimeoutRef.current);
+      incomingCallTimeoutRef.current = setTimeout(() => {
+        console.log('[WebRTC] Incoming call not answered within 1 minute, auto declining');
+        if (socket && data.from) {
+          socket.emit('reject_call', { to: data.from, reason: 'no_answer' });
+        }
+        soundEffects.stopRingtone();
+        closeCallNotification();
+        setIncomingCall(null);
+      }, 60000);
     };
 
     // Call Accepted by remote user
     const handleCallAccepted = async (data: { signal: any }) => {
       console.log('[WebRTC] Call accepted by remote party');
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current);
+        callTimeoutRef.current = null;
+      }
+      closeCallNotification();
+
       soundEffects.stopRingtone();
       soundEffects.playConnectTone();
       setIsCalling(false);
@@ -359,12 +430,30 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
 
     // Call Rejected
     const handleCallRejected = () => {
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current);
+        callTimeoutRef.current = null;
+      }
+      if (incomingCallTimeoutRef.current) {
+        clearTimeout(incomingCallTimeoutRef.current);
+        incomingCallTimeoutRef.current = null;
+      }
+      closeCallNotification();
       soundEffects.stopRingtone();
       cleanupCall();
     };
 
     // Call Ended
     const handleCallEnded = () => {
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current);
+        callTimeoutRef.current = null;
+      }
+      if (incomingCallTimeoutRef.current) {
+        clearTimeout(incomingCallTimeoutRef.current);
+        incomingCallTimeoutRef.current = null;
+      }
+      closeCallNotification();
       cleanupCall();
     };
 

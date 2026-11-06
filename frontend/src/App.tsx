@@ -17,6 +17,13 @@ import { AuthPage } from './components/auth/AuthPage.js';
 import { WallpaperModal } from './components/chat/WallpaperModal.js';
 import { useWebRTC } from './hooks/useWebRTC.js';
 import { User, Chat, Message, Product, QuickReply, Label, StatusItem } from './types/index.js';
+import { soundEffects } from './utils/audioTones.js';
+import { getAvatarUrl } from './utils/avatar.js';
+import {
+  registerServiceWorker,
+  requestNotificationPermission,
+  showMessageNotification,
+} from './utils/notifications.js';
 
 export const App: React.FC = () => {
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -55,12 +62,19 @@ export const App: React.FC = () => {
   // Initialize WebRTC Calling Hook
   const webrtc = useWebRTC(socket, currentUser?.id || null);
 
-  // 1. Initialize Socket.io connection with automatic re-registration on reconnect
+  // 1. Initialize Socket.io connection with automatic background reconnection, keep-alive & notifications
   useEffect(() => {
+    // Register Service Worker and prompt for notification permissions
+    registerServiceWorker();
+    requestNotificationPermission();
+
     const s = io(window.location.origin, {
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 25,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
     });
     setSocket(s);
 
@@ -78,7 +92,52 @@ export const App: React.FC = () => {
       }
     });
 
+    // Handle background wake-up and tab visibility changes
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (!s.connected) {
+          console.log('[Socket] Reconnecting on page visible...');
+          s.connect();
+        }
+        if (currentUserRef.current) {
+          s.emit('user_connected', currentUserRef.current.id);
+        }
+        document.title = 'IChat - Ultra-Fast Real-Time Messenger';
+      }
+    };
+
+    const handleWindowFocus = () => {
+      if (!s.connected) {
+        s.connect();
+      }
+      document.title = 'IChat - Ultra-Fast Real-Time Messenger';
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+
+    // Keep-alive heartbeat every 25 seconds (prevents proxy/NAT timeouts)
+    const keepAliveTimer = setInterval(() => {
+      if (s.connected && currentUserRef.current) {
+        s.emit('ping_check', { userId: currentUserRef.current.id });
+      } else if (!s.connected && currentUserRef.current) {
+        s.connect();
+      }
+    }, 25000);
+
+    // Handle service worker notification click navigation
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'NAVIGATE_TO_CHAT' && event.data.chatId) {
+        setActiveChatId(event.data.chatId);
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', handleServiceWorkerMessage);
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+      navigator.serviceWorker?.removeEventListener('message', handleServiceWorkerMessage);
+      clearInterval(keepAliveTimer);
       s.disconnect();
     };
   }, []);
@@ -263,6 +322,46 @@ export const App: React.FC = () => {
         }
         return updated.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
       });
+
+      // Auto notification, sound & vibration when receiving message from someone else
+      if (data.message.senderId !== currentUser.id) {
+        try {
+          soundEffects.playMessagePop();
+        } catch (_) {}
+
+        const isNotActiveChat = data.message.chatId !== activeChatId;
+        const isBackgrounded = typeof document !== 'undefined' && (document.hidden || !document.hasFocus());
+
+        if (isNotActiveChat || isBackgrounded) {
+          const sender = allUsers.find((u) => u.id === data.message.senderId) ||
+            data.chat?.members?.find((m) => m.userId === data.message.senderId)?.user;
+          const senderName = sender?.name || data.chat?.name || 'Someone';
+
+          let preview = data.message.content || 'New message';
+          if (data.message.type === 'image') preview = '📷 Photo';
+          else if (data.message.type === 'video') preview = '🎥 Video';
+          else if (data.message.type === 'audio') preview = '🎵 Voice message';
+          else if (data.message.type === 'document') preview = '📄 Document';
+          else if (data.message.type === 'location') preview = '📍 Location shared';
+          else if (data.message.type === 'call') preview = data.message.content || '📞 Call';
+
+          const notifTitle = data.chat?.isGroup && data.chat?.name
+            ? `${data.chat.name} (${senderName})`
+            : senderName;
+
+          showMessageNotification({
+            title: notifTitle,
+            body: preview,
+            icon: getAvatarUrl(sender?.avatar),
+            chatId: data.message.chatId,
+            onClick: () => {
+              setActiveChatId(data.message.chatId);
+            },
+          });
+
+          document.title = `(1) ${senderName}: ${preview.slice(0, 20)}...`;
+        }
+      }
     };
 
     const handleNewChat = (data: { chat: Chat }) => {
