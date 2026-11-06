@@ -19,9 +19,8 @@ fi
 echo "🐳 Building Docker images..."
 docker compose build
 
-echo "🔄 Stopping and removing existing app containers..."
-docker compose stop whatsapp_frontend whatsapp_backend 2>/dev/null || true
-docker compose rm -f whatsapp_frontend whatsapp_backend 2>/dev/null || true
+echo "🔄 Removing previous container instances to prevent conflict..."
+docker rm -f whatsapp_frontend whatsapp_backend 2>/dev/null || true
 sleep 1
 
 echo "🚀 Starting Docker containers..."
