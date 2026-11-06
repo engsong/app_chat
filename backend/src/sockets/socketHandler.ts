@@ -104,7 +104,7 @@ export function setupSocketHandlers(io: Server) {
       chatId: string;
       senderId: string;
       content: string;
-      type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'product';
+      type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product';
       mediaUrl?: string;
       metadata?: string;
     }) => {

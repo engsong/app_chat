@@ -11,6 +11,7 @@ import { BusinessProfileModal } from './components/business/BusinessProfileModal
 import { LabelsModal } from './components/business/LabelsModal.js';
 import { StatusModal } from './components/status/StatusModal.js';
 import { NewChatModal } from './components/chat/NewChatModal.js';
+import { AdminDashboardModal } from './components/admin/AdminDashboardModal.js';
 import { AuthPage } from './components/auth/AuthPage.js';
 import { useWebRTC } from './hooks/useWebRTC.js';
 import { User, Chat, Message, Product, QuickReply, Label, StatusItem } from './types/index.js';
@@ -36,6 +37,8 @@ export const App: React.FC = () => {
   const [showLabels, setShowLabels] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+  const [pendingUsersCount, setPendingUsersCount] = useState(0);
   const [profileModalUser, setProfileModalUser] = useState<User | null>(null);
 
   // Ref to track currentUser in socket and lifecycle callbacks
@@ -144,6 +147,20 @@ export const App: React.FC = () => {
     };
 
     loadUserChats();
+
+    // Fetch admin stats if user is super admin
+    if (currentUser.role === 'admin' || currentUser.phone === '02054245616' || currentUser.phone?.toLowerCase() === 'admin') {
+      fetch('/api/admin/overview', {
+        headers: { 'x-admin-id': currentUser.id },
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d?.pendingCount !== undefined) {
+            setPendingUsersCount(d.pendingCount);
+          }
+        })
+        .catch(() => {});
+    }
   }, [socket, currentUser]);
 
   // 4. Load messages for active chat
@@ -355,8 +372,9 @@ export const App: React.FC = () => {
   // Send message handler
   const handleSendMessage = (
     content: string,
-    type: 'text' | 'image' | 'video' | 'audio' | 'product' = 'text',
-    metadata?: string
+    type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product' = 'text',
+    metadata?: string,
+    mediaUrl?: string
   ) => {
     if (!socket || !activeChatId || !currentUser) return;
 
@@ -366,6 +384,7 @@ export const App: React.FC = () => {
       content,
       type,
       metadata,
+      mediaUrl,
     });
   };
 
@@ -611,6 +630,8 @@ export const App: React.FC = () => {
         onOpenCatalog={() => setShowCatalog(true)}
         onOpenLabels={() => setShowLabels(true)}
         onOpenMyProfile={() => setProfileModalUser(currentUser)}
+        onOpenAdminDashboard={() => setShowAdminDashboard(true)}
+        pendingUsersCount={pendingUsersCount}
         onLogout={handleLogout}
         selectedLabelId={selectedLabelId}
         onClearLabelFilter={() => setSelectedLabelId(null)}
@@ -762,6 +783,21 @@ export const App: React.FC = () => {
         onCreateGroupChat={handleCreateGroupChat}
         onAddContact={handleAddContact}
       />
+
+      {/* 11. Super Admin Dashboard Modal (User Approvals & Chat Monitoring) */}
+      {currentUser && (currentUser.role === 'admin' || currentUser.phone === '02054245616' || currentUser.phone?.toLowerCase() === 'admin') && (
+        <AdminDashboardModal
+          isOpen={showAdminDashboard}
+          onClose={() => {
+            setShowAdminDashboard(false);
+            fetch('/api/admin/overview', { headers: { 'x-admin-id': currentUser.id } })
+              .then((r) => r.json())
+              .then((d) => setPendingUsersCount(d.pendingCount || 0))
+              .catch(() => {});
+          }}
+          currentUser={currentUser}
+        />
+      )}
     </div>
   );
 };

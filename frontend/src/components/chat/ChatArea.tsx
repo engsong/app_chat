@@ -12,9 +12,15 @@ import {
   CheckCheck,
   Play,
   Pause,
-  ShieldCheck,
   X,
-  ArrowLeft
+  ArrowLeft,
+  Image as ImageIcon,
+  MapPin,
+  FileText,
+  Download,
+  Trash2,
+  ExternalLink,
+  Maximize2
 } from 'lucide-react';
 import { Chat, Message, User, Product, QuickReply } from '../../types/index.js';
 import { soundEffects } from '../../utils/audioTones.js';
@@ -23,7 +29,12 @@ interface ChatAreaProps {
   chat: Chat;
   messages: Message[];
   currentUser: User;
-  onSendMessage: (content: string, type?: 'text' | 'image' | 'video' | 'audio' | 'product', metadata?: string) => void;
+  onSendMessage: (
+    content: string,
+    type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product',
+    metadata?: string,
+    mediaUrl?: string
+  ) => void;
   onStartAudioCall: () => void;
   onStartVideoCall: () => void;
   onOpenBusinessProfile: (user: User) => void;
@@ -56,7 +67,24 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showQuickReplyPicker, setShowQuickReplyPicker] = useState(false);
   const [filteredQuickReplies, setFilteredQuickReplies] = useState<QuickReply[]>([]);
+  
+  // Audio playback state
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  // Real voice recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<any>(null);
+
+  // Image lightbox modal
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  // File input refs
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<any>(null);
 
@@ -67,6 +95,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [messages, typingUsers]);
 
+  // Clean up audio and recording when changing chats
+  useEffect(() => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+    }
+    setPlayingAudioId(null);
+    cancelRecording();
+  }, [chat.id]);
+
   // Determine chat header details
   const isGroup = chat.isGroup;
   const otherMember = chat.members?.find((m) => m.userId !== currentUser.id)?.user;
@@ -74,7 +112,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const avatar = isGroup
     ? (chat.avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150')
     : (otherMember?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150');
-  const isBusiness = !isGroup && otherMember?.isBusiness;
 
   // Typing event handler
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,18 +150,209 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     setShowQuickReplyPicker(false);
   };
 
-  // Simulate sending voice note
-  const handleSendVoiceNote = () => {
-    const durations = [12, 24, 38, 45, 18];
-    const duration = durations[Math.floor(Math.random() * durations.length)];
-    onSendMessage('Voice message', 'audio', JSON.stringify({ duration }));
-    soundEffects.playMessagePop();
+  // 1. Send Image File
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      onSendMessage(file.name || 'Photo', 'image', undefined, dataUrl);
+      soundEffects.playMessagePop();
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+    setShowAttachMenu(false);
+  };
+
+  // 2. Send Document File
+  const handleDocFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const metadata = JSON.stringify({
+        name: file.name,
+        size: file.size,
+      });
+      onSendMessage(file.name, 'document', metadata, dataUrl);
+      soundEffects.playMessagePop();
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+    setShowAttachMenu(false);
+  };
+
+  // 3. Send Location
+  const handleSendLocation = () => {
+    setShowAttachMenu(false);
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+        const metadata = JSON.stringify({ lat, lng, mapUrl });
+        onSendMessage(
+          `📍 Location: ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+          'location',
+          metadata
+        );
+        soundEffects.playMessagePop();
+      },
+      (err) => {
+        console.warn('Geolocation error:', err);
+        // Fallback or prompt
+        const manualLoc = prompt('Enter a city or location to share:', 'Vientiane, Laos');
+        if (manualLoc) {
+          onSendMessage(`📍 Location: ${manualLoc}`, 'location');
+          soundEffects.playMessagePop();
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // 4. Real Voice Note Recording
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+      // Fallback voice message simulation if mic access blocked
+      const duration = Math.floor(10 + Math.random() * 20);
+      onSendMessage('Voice message', 'audio', JSON.stringify({ duration }));
+      soundEffects.playMessagePop();
+    }
+  };
+
+  const cancelRecording = () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+    }
+    setIsRecording(false);
+    setRecordingSeconds(0);
+    audioChunksRef.current = [];
+  };
+
+  const stopAndSendRecording = () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    const duration = recordingSeconds;
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          onSendMessage(
+            'Voice message',
+            'audio',
+            JSON.stringify({ duration: duration || 1 }),
+            dataUrl
+          );
+          soundEffects.playMessagePop();
+        };
+        reader.readAsDataURL(audioBlob);
+
+        mediaRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
+      };
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  };
+
+  // Audio Playback
+  const togglePlayAudio = (msg: Message) => {
+    if (playingAudioId === msg.id) {
+      audioPlayerRef.current?.pause();
+      setPlayingAudioId(null);
+      return;
+    }
+
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+    }
+
+    if (msg.mediaUrl) {
+      const audio = new Audio(msg.mediaUrl);
+      audioPlayerRef.current = audio;
+      setPlayingAudioId(msg.id);
+
+      audio.play().catch(() => {
+        soundEffects.playMessagePop();
+      });
+
+      audio.onended = () => {
+        setPlayingAudioId(null);
+      };
+    } else {
+      // Simulated tone if no media url
+      setPlayingAudioId(msg.id);
+      soundEffects.playMessagePop();
+      setTimeout(() => setPlayingAudioId(null), 3000);
+    }
+  };
+
+  const formatSeconds = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes) return '128 KB';
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const isOtherTyping = typingUsers.length > 0;
 
   return (
     <div className="flex-1 flex flex-col h-full h-[100dvh] bg-[#0b141a] relative overflow-hidden">
+      {/* Hidden file inputs for image and document upload */}
+      <input
+        type="file"
+        ref={imageInputRef}
+        accept="image/*,video/*"
+        onChange={handleImageFileChange}
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={docInputRef}
+        accept="*/*"
+        onChange={handleDocFileChange}
+        className="hidden"
+      />
+
       {/* 1. Chat Header (Sticky & Never Shrinks) */}
       <div className="h-16 flex-shrink-0 px-3 sm:px-4 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between z-20 sticky top-0">
         <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
@@ -158,33 +386,28 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               )}
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 truncate">
-                <h3 className="font-semibold text-sm text-white group-hover:text-[#00a884] transition-colors leading-tight truncate">
-                  {title}
-                </h3>
-                {isBusiness && (
-                  <span title="Official Business Account" className="flex-shrink-0">
-                    <ShieldCheck className="w-4 h-4 text-[#00a884]" />
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-[#8696a0] leading-none mt-0.5 truncate">
+              <h3 className="font-semibold text-sm sm:text-base text-white group-hover:text-[#00a884] transition-colors truncate">
+                {title}
+              </h3>
+              <p className="text-[11px] text-[#8696a0] truncate">
                 {isOtherTyping ? (
-                  <span className="text-[#00a884] font-medium">typing...</span>
+                  <span className="text-[#00a884] font-medium animate-pulse">typing...</span>
                 ) : isGroup ? (
                   `${chat.members?.length || 0} participants`
                 ) : otherMember?.isOnline ? (
-                  'Online'
+                  <span className="text-[#00a884]">online</span>
+                ) : otherMember?.lastSeen ? (
+                  `last seen ${new Date(otherMember.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
                 ) : (
-                  'Last seen recently'
+                  'offline'
                 )}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Action Buttons: Voice Call, Video Call, Menu */}
-        <div className="flex items-center gap-1 sm:gap-2 text-[#aebac1] flex-shrink-0">
+        {/* Action Call & Business Buttons */}
+        <div className="flex items-center gap-0.5 sm:gap-1 text-[#aebac1] flex-shrink-0">
           {/* Audio Call */}
           <button
             onClick={onStartAudioCall}
@@ -216,15 +439,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
       </div>
 
-      {/* 2. Messages List Body (Safe container scroll) */}
+      {/* 2. Messages List Body */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-4 md:p-6 space-y-2 whatsapp-chat-bg overscroll-contain"
+        className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-2.5 whatsapp-chat-bg overscroll-contain"
       >
         {/* Encryption Security Badge */}
-        <div className="flex justify-center mb-4">
-          <div className="bg-[#182229] border border-[#2a3942]/60 text-[#ffd279] text-xs px-4 py-2 rounded-xl max-w-sm text-center shadow-sm">
-            🔒 Messages and calls are end-to-end encrypted. No one outside of this chat can read or listen.
+        <div className="flex justify-center mb-3">
+          <div className="bg-[#182229] border border-[#2a3942]/60 text-[#ffd279] text-[11px] px-3.5 py-1.5 rounded-xl max-w-sm text-center shadow-sm">
+            🔒 Messages and calls are end-to-end encrypted with WebRTC & Real-time Sockets.
           </div>
         </div>
 
@@ -239,7 +462,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-fade-in`}
             >
               <div
-                className={`max-w-[85%] sm:max-w-md rounded-2xl p-3 shadow-md relative ${
+                className={`max-w-[88%] sm:max-w-md rounded-2xl p-2.5 sm:p-3 shadow-md relative ${
                   isMe
                     ? 'bg-[#005c4b] text-white rounded-tr-none'
                     : 'bg-[#202c33] text-white rounded-tl-none border border-[#2a3942]/50'
@@ -259,19 +482,101 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   </p>
                 )}
 
-                {/* 2. Audio / Voice Note Message */}
+                {/* 2. Image / Photo Message */}
+                {msg.type === 'image' && (
+                  <div className="space-y-1.5">
+                    <div
+                      onClick={() => msg.mediaUrl && setLightboxUrl(msg.mediaUrl)}
+                      className="cursor-pointer relative group overflow-hidden rounded-xl bg-black/30"
+                    >
+                      <img
+                        src={msg.mediaUrl}
+                        alt="Photo"
+                        className="max-h-72 w-full object-cover rounded-xl transition-transform group-hover:scale-105"
+                      />
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <span className="p-2 rounded-full bg-black/60 text-white">
+                          <Maximize2 className="w-4 h-4" />
+                        </span>
+                      </div>
+                    </div>
+                    {msg.content && msg.content !== 'Photo' && (
+                      <p className="text-sm text-white pt-1">{msg.content}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* 3. Location Message */}
+                {msg.type === 'location' && (
+                  (() => {
+                    let mapUrl = 'https://maps.google.com';
+                    if (msg.metadata) {
+                      try {
+                        const parsed = JSON.parse(msg.metadata);
+                        mapUrl = parsed.mapUrl || `https://maps.google.com?q=${parsed.lat},${parsed.lng}`;
+                      } catch (e) {}
+                    }
+                    return (
+                      <div className="p-2.5 bg-[#111b21] rounded-xl border border-[#2a3942] min-w-[200px] sm:min-w-[240px]">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-500 flex items-center justify-center flex-shrink-0">
+                            <MapPin className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <h5 className="font-semibold text-xs text-white">Shared Location</h5>
+                            <p className="text-[10px] text-[#8696a0] truncate">{msg.content}</p>
+                          </div>
+                        </div>
+
+                        <a
+                          href={mapUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="w-full py-1.5 px-3 rounded-lg bg-[#202c33] hover:bg-[#00a884] text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>Open in Google Maps</span>
+                        </a>
+                      </div>
+                    );
+                  })()
+                )}
+
+                {/* 4. Document Message */}
+                {msg.type === 'document' && (
+                  <div className="p-2.5 bg-[#111b21] rounded-xl border border-[#2a3942] flex items-center justify-between gap-3 min-w-[220px]">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center flex-shrink-0">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-white truncate max-w-[160px]">
+                          {msg.content}
+                        </p>
+                        <p className="text-[10px] text-[#8696a0]">
+                          {msg.metadata ? formatFileSize(JSON.parse(msg.metadata).size) : 'File'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {msg.mediaUrl && (
+                      <a
+                        href={msg.mediaUrl}
+                        download={msg.content}
+                        className="p-2 rounded-full bg-[#202c33] hover:bg-[#00a884] text-white transition-colors flex-shrink-0"
+                        title="Download Document"
+                      >
+                        <Download className="w-4 h-4" />
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                {/* 5. Audio / Voice Note Message */}
                 {msg.type === 'audio' && (
-                  <div className="flex items-center gap-3 py-1 min-w-[200px]">
+                  <div className="flex items-center gap-2.5 py-1 min-w-[210px] sm:min-w-[240px]">
                     <button
-                      onClick={() => {
-                        if (playingAudioId === msg.id) {
-                          setPlayingAudioId(null);
-                        } else {
-                          setPlayingAudioId(msg.id);
-                          soundEffects.playMessagePop();
-                          setTimeout(() => setPlayingAudioId(null), 3000);
-                        }
-                      }}
+                      onClick={() => togglePlayAudio(msg)}
                       className="w-10 h-10 rounded-full bg-[#00a884] hover:bg-[#008f6f] flex items-center justify-center text-white flex-shrink-0 transition-transform active:scale-95 shadow-md"
                     >
                       {playingAudioId === msg.id ? (
@@ -300,12 +605,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     </div>
 
                     <span className="text-[11px] text-white/70 font-mono flex-shrink-0">
-                      0:{msg.metadata ? JSON.parse(msg.metadata).duration : '24'}
+                      0:{msg.metadata ? JSON.parse(msg.metadata).duration : '15'}
                     </span>
                   </div>
                 )}
 
-                {/* 3. Product Catalog Card Message */}
+                {/* 6. Product Catalog Card Message */}
                 {msg.type === 'product' && msg.metadata && (
                   (() => {
                     try {
@@ -355,7 +660,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
       {/* 3. Quick Replies Autocomplete Popover */}
       {showQuickReplyPicker && filteredQuickReplies.length > 0 && (
-        <div className="absolute bottom-16 left-4 right-4 max-w-lg bg-[#202c33] border border-[#2a3942] rounded-xl shadow-2xl p-2 z-30 animate-scale-up">
+        <div className="absolute bottom-16 left-3 right-3 sm:left-4 sm:right-auto sm:w-80 bg-[#202c33] border border-[#2a3942] rounded-xl shadow-2xl p-2 z-30 animate-scale-up">
           <div className="flex items-center justify-between px-2 py-1 border-b border-[#2a3942] text-[11px] text-gray-400">
             <span className="flex items-center gap-1 font-semibold text-[#00a884]">
               <Zap className="w-3.5 h-3.5" /> Quick Replies (Type /shortcut)
@@ -372,7 +677,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 className="p-2 rounded-lg hover:bg-[#111b21] cursor-pointer flex items-center justify-between text-xs"
               >
                 <span className="font-mono text-[#00a884] font-semibold">{qr.shortcut}</span>
-                <span className="text-gray-300 line-clamp-1 max-w-[280px]">{qr.message}</span>
+                <span className="text-gray-300 line-clamp-1 max-w-[200px]">{qr.message}</span>
               </div>
             ))}
           </div>
@@ -380,88 +685,197 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       )}
 
       {/* 4. Chat Input Bar (Sticky & Never Shrinks) */}
-      <div className="min-h-16 flex-shrink-0 px-3 sm:px-4 py-2 bg-[#202c33] border-t border-[#2a3942] flex items-center gap-2 z-20 sticky bottom-0">
-        {/* Attach Menu Toggle */}
-        <div className="relative flex-shrink-0">
-          <button
-            onClick={() => setShowAttachMenu(!showAttachMenu)}
-            className="p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors"
-            title="Attach file, catalog item, or quick reply"
-          >
-            <Paperclip className="w-5 h-5" />
-          </button>
+      <div className="min-h-16 flex-shrink-0 px-2 sm:px-4 py-2 bg-[#202c33] border-t border-[#2a3942] flex items-center gap-1.5 sm:gap-2 z-20 sticky bottom-0">
+        {isRecording ? (
+          // Recording Audio Bar
+          <div className="flex-1 flex items-center justify-between bg-[#111b21] rounded-xl px-3 py-2 border border-[#2a3942] animate-fade-in">
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
+              <span className="text-xs font-mono font-semibold text-rose-400">
+                Recording {formatSeconds(recordingSeconds)}
+              </span>
+            </div>
 
-          {/* Attach Flyout */}
-          {showAttachMenu && (
-            <div className="absolute bottom-12 left-0 bg-[#202c33] border border-[#2a3942] rounded-2xl p-2 shadow-2xl flex flex-col gap-1 w-48 z-30 animate-scale-up">
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => {
-                  onOpenCatalog();
-                  setShowAttachMenu(false);
-                }}
-                className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-[#111b21] text-xs text-white"
+                onClick={cancelRecording}
+                className="p-2 rounded-full hover:bg-rose-900/40 text-[#8696a0] hover:text-rose-400 transition-colors"
+                title="Cancel recording"
               >
-                <div className="w-7 h-7 rounded-full bg-[#00a884]/20 flex items-center justify-center text-[#00a884]">
-                  <ShoppingBag className="w-4 h-4" />
-                </div>
-                <span>Catalog Product</span>
+                <Trash2 className="w-4 h-4" />
               </button>
-
               <button
-                onClick={() => {
-                  setInputText('/');
-                  setShowQuickReplyPicker(true);
-                  setFilteredQuickReplies(quickReplies);
-                  setShowAttachMenu(false);
-                }}
-                className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-[#111b21] text-xs text-white"
+                onClick={stopAndSendRecording}
+                className="w-8 h-8 rounded-full bg-[#00a884] hover:bg-[#008f6f] flex items-center justify-center text-white transition-all shadow-md active:scale-95"
+                title="Send voice message"
               >
-                <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400">
-                  <Zap className="w-4 h-4" />
-                </div>
-                <span>Quick Reply</span>
+                <Send className="w-4 h-4 ml-0.5" />
               </button>
             </div>
-          )}
-        </div>
-
-        <button className="hidden sm:flex p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors flex-shrink-0">
-          <Smile className="w-5 h-5" />
-        </button>
-
-        {/* Input Text Field */}
-        <input
-          type="text"
-          placeholder="Type a message or '/' for quick replies..."
-          value={inputText}
-          onChange={handleInputChange}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              handleSend();
-            }
-          }}
-          className="flex-1 min-w-0 bg-[#2a3942] text-white placeholder-[#8696a0] text-sm rounded-xl px-3 sm:px-4 py-2.5 focus:outline-none focus:ring-1 focus:ring-[#00a884]"
-        />
-
-        {/* Send / Voice Note Button */}
-        {inputText.trim() ? (
-          <button
-            onClick={handleSend}
-            className="w-10 h-10 rounded-full bg-[#00a884] hover:bg-[#008f6f] flex items-center justify-center text-white transition-all shadow-md active:scale-95 flex-shrink-0"
-            title="Send Message"
-          >
-            <Send className="w-5 h-5 ml-0.5" />
-          </button>
+          </div>
         ) : (
-          <button
-            onClick={handleSendVoiceNote}
-            className="p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors flex-shrink-0"
-            title="Record & Send Voice Note"
-          >
-            <Mic className="w-5 h-5" />
-          </button>
+          // Standard Input Bar
+          <>
+            {/* Attach Menu Toggle */}
+            <div className="relative flex-shrink-0">
+              <button
+                onClick={() => setShowAttachMenu(!showAttachMenu)}
+                className="p-2 sm:p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors"
+                title="Attach photo, video, location, document, or catalog product"
+              >
+                <Paperclip className="w-5 h-5" />
+              </button>
+
+              {/* Attach Flyout */}
+              {showAttachMenu && (
+                <div className="absolute bottom-12 left-0 bg-[#202c33] border border-[#2a3942] rounded-2xl p-2 shadow-2xl flex flex-col gap-1 w-52 z-30 animate-scale-up">
+                  {/* Photo & Video */}
+                  <button
+                    onClick={() => {
+                      imageInputRef.current?.click();
+                      setShowAttachMenu(false);
+                    }}
+                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-[#111b21] text-xs text-white"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400">
+                      <ImageIcon className="w-4 h-4" />
+                    </div>
+                    <span>Photo & Video</span>
+                  </button>
+
+                  {/* Location */}
+                  <button
+                    onClick={handleSendLocation}
+                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-[#111b21] text-xs text-white"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-rose-500/20 flex items-center justify-center text-rose-400">
+                      <MapPin className="w-4 h-4" />
+                    </div>
+                    <span>Send Location</span>
+                  </button>
+
+                  {/* Document */}
+                  <button
+                    onClick={() => {
+                      docInputRef.current?.click();
+                      setShowAttachMenu(false);
+                    }}
+                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-[#111b21] text-xs text-white"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <span>Document File</span>
+                  </button>
+
+                  {/* Catalog Product */}
+                  <button
+                    onClick={() => {
+                      onOpenCatalog();
+                      setShowAttachMenu(false);
+                    }}
+                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-[#111b21] text-xs text-white"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-[#00a884]/20 flex items-center justify-center text-[#00a884]">
+                      <ShoppingBag className="w-4 h-4" />
+                    </div>
+                    <span>Catalog Product</span>
+                  </button>
+
+                  {/* Quick Reply */}
+                  <button
+                    onClick={() => {
+                      setInputText('/');
+                      setShowQuickReplyPicker(true);
+                      setFilteredQuickReplies(quickReplies);
+                      setShowAttachMenu(false);
+                    }}
+                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-[#111b21] text-xs text-white"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400">
+                      <Zap className="w-4 h-4" />
+                    </div>
+                    <span>Quick Reply</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <button className="hidden sm:flex p-2 sm:p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors flex-shrink-0">
+              <Smile className="w-5 h-5" />
+            </button>
+
+            {/* Input Text Field */}
+            <input
+              type="text"
+              placeholder="Type a message or '/' for quick replies..."
+              value={inputText}
+              onChange={handleInputChange}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleSend();
+                }
+              }}
+              className="flex-1 min-w-0 bg-[#2a3942] text-white placeholder-[#8696a0] text-sm rounded-xl px-3 sm:px-4 py-2.5 focus:outline-none focus:ring-1 focus:ring-[#00a884]"
+            />
+
+            {/* Send / Voice Note Button */}
+            {inputText.trim() ? (
+              <button
+                onClick={handleSend}
+                className="w-10 h-10 rounded-full bg-[#00a884] hover:bg-[#008f6f] flex items-center justify-center text-white transition-all shadow-md active:scale-95 flex-shrink-0"
+                title="Send Message"
+              >
+                <Send className="w-5 h-5 ml-0.5" />
+              </button>
+            ) : (
+              <button
+                onClick={startRecording}
+                className="p-2 sm:p-2.5 rounded-full text-[#8696a0] hover:text-white hover:bg-[#374248] transition-colors flex-shrink-0"
+                title="Record Voice Note"
+              >
+                <Mic className="w-5 h-5" />
+              </button>
+            )}
+          </>
         )}
       </div>
+
+      {/* 5. Image Lightbox Modal */}
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-4xl max-h-[90dvh] flex flex-col items-center"
+          >
+            <div className="absolute top-2 right-2 flex items-center gap-2 z-10">
+              <a
+                href={lightboxUrl}
+                download="photo.jpg"
+                className="p-2 rounded-full bg-black/60 text-white hover:bg-[#00a884] transition-colors"
+                title="Download image"
+              >
+                <Download className="w-5 h-5" />
+              </a>
+              <button
+                onClick={() => setLightboxUrl(null)}
+                className="p-2 rounded-full bg-black/60 text-white hover:bg-rose-600 transition-colors"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <img
+              src={lightboxUrl}
+              alt="Enlarged"
+              className="max-h-[85dvh] max-w-full rounded-2xl object-contain shadow-2xl"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

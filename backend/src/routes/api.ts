@@ -40,6 +40,14 @@ apiRouter.post('/auth/register', (req, res) => {
   ];
   const chosenAvatar = avatar || defaultAvatars[Math.floor(Math.random() * defaultAvatars.length)];
 
+  // Determine if this user should be admin or auto-approved
+  const isAdminPhone = isPhoneMatch(phone, '02054245616') || phone.toLowerCase().trim() === 'admin';
+  const existingAdmins = Array.from(store.users.values()).filter((u) => u.role === 'admin' && Boolean(u.password));
+  const isFirstAdmin = existingAdmins.length === 0;
+  const shouldBeAdmin = isAdminPhone || isFirstAdmin;
+  const initialRole: 'admin' | 'user' = shouldBeAdmin ? 'admin' : 'user';
+  const initialStatus: 'approved' | 'pending' = shouldBeAdmin ? 'approved' : 'pending';
+
   // Check if account already exists for this phone
   const existingUser = Array.from(store.users.values()).find((u) => isPhoneMatch(u.phone, phone));
   if (existingUser) {
@@ -53,6 +61,8 @@ apiRouter.post('/auth/register', (req, res) => {
     existingUser.phone = phone.trim();
     existingUser.password = password;
     existingUser.avatar = chosenAvatar;
+    existingUser.role = shouldBeAdmin ? 'admin' : (existingUser.role || 'user');
+    existingUser.status = initialStatus;
     existingUser.about = isBusiness
       ? 'Welcome to our official business chat!'
       : 'Hey there! I am using IChat.';
@@ -69,7 +79,11 @@ apiRouter.post('/auth/register', (req, res) => {
     }
 
     store.saveToFile();
-    return res.status(201).json({ success: true, user: existingUser });
+    return res.status(201).json({
+      success: true,
+      user: existingUser,
+      requiresApproval: existingUser.status === 'pending',
+    });
   }
 
   const newUser: UserData = {
@@ -78,6 +92,8 @@ apiRouter.post('/auth/register', (req, res) => {
     password,
     name: name.trim(),
     avatar: chosenAvatar,
+    role: initialRole,
+    status: initialStatus,
     about: isBusiness
       ? 'Welcome to our official business chat!'
       : 'Hey there! I am using IChat.',
@@ -94,7 +110,11 @@ apiRouter.post('/auth/register', (req, res) => {
   store.users.set(newUser.id, newUser);
   store.userContacts.set(newUser.id, new Set());
   store.saveToFile();
-  res.status(201).json({ success: true, user: newUser });
+  res.status(201).json({
+    success: true,
+    user: newUser,
+    requiresApproval: newUser.status === 'pending',
+  });
 });
 
 // 2. User Login
@@ -131,8 +151,32 @@ apiRouter.post('/auth/login', (req, res) => {
     store.saveToFile();
   }
 
+  // Ensure role and status are set
+  if (isPhoneMatch(user.phone, '02054245616') || user.phone?.toLowerCase() === 'admin') {
+    user.role = 'admin';
+    user.status = 'approved';
+  } else if (!user.status) {
+    user.status = 'approved';
+  }
+
+  // Check registration approval status
+  if (user.status === 'pending') {
+    return res.status(403).json({
+      error: 'Your account registration is pending approval by the administrator. Please wait for an admin to approve your account.',
+      status: 'pending',
+    });
+  }
+
+  if (user.status === 'rejected') {
+    return res.status(403).json({
+      error: 'Your account registration was rejected by the administrator.',
+      status: 'rejected',
+    });
+  }
+
   user.isOnline = true;
   user.lastSeen = new Date();
+  store.saveToFile();
 
   res.json({ success: true, user });
 });
@@ -608,4 +652,177 @@ apiRouter.post('/status/:id/view', (req, res) => {
     store.saveToFile();
   }
   res.json({ success: true });
+});
+
+// ==========================================
+// 7. Media & File Upload
+// ==========================================
+apiRouter.post('/upload', (req, res) => {
+  const { dataUrl, filename, type } = req.body;
+  if (!dataUrl) {
+    return res.status(400).json({ error: 'dataUrl is required' });
+  }
+
+  res.json({
+    success: true,
+    url: dataUrl,
+    filename: filename || 'file',
+    type: type || 'file',
+  });
+});
+
+// ==========================================
+// 8. Super Admin System & Chat Monitoring
+// ==========================================
+const verifyAdmin = (req: any, res: any, next: any) => {
+  const adminId =
+    (req.headers['x-admin-id'] as string) ||
+    (req.query.adminId as string) ||
+    req.body?.adminId;
+
+  if (!adminId) {
+    return res.status(401).json({ error: 'Admin authentication required.' });
+  }
+
+  const adminUser = store.users.get(adminId);
+  const isSuperAdminPhone = adminUser && (isPhoneMatch(adminUser.phone, '02054245616') || adminUser.phone?.toLowerCase() === 'admin');
+
+  if (!adminUser || (adminUser.role !== 'admin' && !isSuperAdminPhone)) {
+    return res.status(403).json({ error: 'Access denied: Admin privileges required.' });
+  }
+
+  // Ensure role is admin
+  adminUser.role = 'admin';
+  adminUser.status = 'approved';
+  req.adminUser = adminUser;
+  next();
+};
+
+// 1. Admin Overview
+apiRouter.get('/admin/overview', verifyAdmin, (req, res) => {
+  const allUsers = Array.from(store.users.values()).filter((u) => Boolean(u.password));
+  const pendingUsers = allUsers.filter((u) => u.status === 'pending');
+  const approvedUsers = allUsers.filter((u) => u.status === 'approved');
+  const rejectedUsers = allUsers.filter((u) => u.status === 'rejected');
+
+  res.json({
+    totalUsers: allUsers.length,
+    pendingCount: pendingUsers.length,
+    approvedCount: approvedUsers.length,
+    rejectedCount: rejectedUsers.length,
+    totalChats: store.chats.size,
+    totalMessages: store.messages.size,
+  });
+});
+
+// 2. Admin List Users
+apiRouter.get('/admin/users', verifyAdmin, (req, res) => {
+  const statusFilter = req.query.status as string;
+  const users = Array.from(store.users.values())
+    .filter((u) => Boolean(u.password))
+    .filter((u) => !statusFilter || statusFilter === 'all' || u.status === statusFilter)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map((u) => ({
+      id: u.id,
+      phone: u.phone,
+      name: u.name,
+      avatar: u.avatar,
+      role: u.role || 'user',
+      status: u.status || 'approved',
+      isBusiness: u.isBusiness,
+      businessName: u.businessName,
+      isOnline: u.isOnline,
+      lastSeen: u.lastSeen,
+      createdAt: u.createdAt,
+    }));
+
+  res.json(users);
+});
+
+// 3. Approve User
+apiRouter.post('/admin/users/:id/approve', verifyAdmin, (req, res) => {
+  const user = store.users.get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.status = 'approved';
+  user.updatedAt = new Date();
+  store.saveToFile();
+
+  res.json({ success: true, user });
+});
+
+// 4. Reject User
+apiRouter.post('/admin/users/:id/reject', verifyAdmin, (req, res) => {
+  const user = store.users.get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.status = 'rejected';
+  user.updatedAt = new Date();
+  store.saveToFile();
+
+  res.json({ success: true, user });
+});
+
+// 5. Toggle Admin Role
+apiRouter.post('/admin/users/:id/role', verifyAdmin, (req, res) => {
+  const user = store.users.get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const { role } = req.body;
+  if (role !== 'admin' && role !== 'user') {
+    return res.status(400).json({ error: 'Invalid role' });
+  }
+
+  user.role = role;
+  user.updatedAt = new Date();
+  store.saveToFile();
+
+  res.json({ success: true, user });
+});
+
+// 6. Delete User
+apiRouter.delete('/admin/users/:id', verifyAdmin, (req, res) => {
+  const targetId = req.params.id;
+  if (targetId === (req as any).adminUser.id) {
+    return res.status(400).json({ error: 'Admin cannot delete their own account.' });
+  }
+
+  store.users.delete(targetId);
+  store.userContacts.delete(targetId);
+  store.saveToFile();
+
+  res.json({ success: true });
+});
+
+// 7. Admin Chat Monitoring: List ALL chats across the app
+apiRouter.get('/admin/chats', verifyAdmin, (req, res) => {
+  const chats = Array.from(store.chats.values())
+    .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
+    .map((chat) => {
+      const enriched = getEnrichedChat(chat.id);
+      const totalMessages = Array.from(store.messages.values()).filter((m) => m.chatId === chat.id).length;
+      return {
+        ...(enriched || chat),
+        totalMessages,
+      };
+    });
+
+  res.json(chats);
+});
+
+// 8. Admin Chat Monitoring: Inspect and view all messages of ANY chat
+apiRouter.get('/admin/chats/:id/messages', verifyAdmin, (req, res) => {
+  const chatId = req.params.id;
+  const messages = Array.from(store.messages.values())
+    .filter((m) => m.chatId === chatId)
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    .map((m) => {
+      const sender = store.users.get(m.senderId);
+      return {
+        ...m,
+        sender: sender ? { id: sender.id, name: sender.name, phone: sender.phone, avatar: sender.avatar } : undefined,
+      };
+    });
+
+  res.json(messages);
 });

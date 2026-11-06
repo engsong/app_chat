@@ -6,6 +6,7 @@ import {
   Tag,
   Search,
   ShieldCheck,
+  ShieldAlert,
   Check,
   CheckCheck,
   X,
@@ -23,6 +24,8 @@ interface SidebarProps {
   onOpenCatalog: () => void;
   onOpenLabels: () => void;
   onOpenMyProfile: () => void;
+  onOpenAdminDashboard?: () => void;
+  pendingUsersCount?: number;
   onLogout: () => void;
   selectedLabelId: string | null;
   onClearLabelFilter: () => void;
@@ -39,6 +42,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenCatalog,
   onOpenLabels,
   onOpenMyProfile,
+  onOpenAdminDashboard,
+  pendingUsersCount,
   onLogout,
   selectedLabelId,
   onClearLabelFilter,
@@ -148,6 +153,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <MessageSquare className="w-5 h-5" />
           </button>
+
+          {/* Super Admin Console Button */}
+          {(currentUser.role === 'admin' || currentUser.phone === '02054245616' || currentUser.phone?.toLowerCase() === 'admin') && (
+            <button
+              onClick={onOpenAdminDashboard}
+              className="p-2 rounded-full hover:bg-[#374248] text-amber-400 hover:text-amber-300 transition-colors relative"
+              title="Admin Console: User Approvals & Chat Monitoring"
+            >
+              <ShieldAlert className="w-5 h-5" />
+              {pendingUsersCount !== undefined && pendingUsersCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-amber-500 text-black font-extrabold text-[9px] rounded-full flex items-center justify-center animate-pulse">
+                  {pendingUsersCount}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Sign Out */}
           <button

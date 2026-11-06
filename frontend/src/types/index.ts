@@ -5,6 +5,8 @@ export interface User {
   email?: string;
   avatar?: string;
   about: string;
+  role?: 'admin' | 'user';
+  status?: 'approved' | 'pending' | 'rejected';
   isBusiness: boolean;
   businessName?: string;
   businessCategory?: string;
@@ -14,6 +16,7 @@ export interface User {
   businessWebsite?: string;
   isOnline: boolean;
   lastSeen: string;
+  createdAt?: string;
 }
 
 export interface ChatMember {
@@ -28,7 +31,7 @@ export interface Message {
   id: string;
   chatId: string;
   senderId: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'product';
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product';
   content: string;
   mediaUrl?: string;
   metadata?: string; // JSON with audio duration, file size, or product info

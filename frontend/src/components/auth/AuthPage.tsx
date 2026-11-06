@@ -23,6 +23,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   // Login form states (clean initial inputs, no sample credentials)
   const [loginPhone, setLoginPhone] = useState('');
@@ -51,6 +52,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setSuccessMsg('');
     setLoading(true);
 
     try {
@@ -80,6 +82,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setSuccessMsg('');
 
     if (regPassword !== regConfirmPassword) {
       setErrorMsg('Passwords do not match. Please verify.');
@@ -112,6 +115,16 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || 'Registration failed.');
+      }
+
+      if (data.requiresApproval || data.user?.status === 'pending') {
+        setSuccessMsg(
+          'Registration submitted successfully! Your account is pending administrator approval. Once approved, you can log in with your phone and password.'
+        );
+        setIsLoginTab(true);
+        setLoginPhone(regPhone.trim());
+        setLoginPassword('');
+        return;
       }
 
       onLoginSuccess(data.user);
@@ -176,6 +189,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
               Create Account
             </button>
           </div>
+
+          {/* Success Alert Banner */}
+          {successMsg && (
+            <div className="mb-4 p-3 bg-emerald-950/70 border border-emerald-500/50 rounded-xl text-xs text-emerald-200 flex items-center gap-2 animate-fade-in">
+              <Check className="w-4 h-4 text-[#00a884] flex-shrink-0" />
+              <span>{successMsg}</span>
+            </div>
+          )}
 
           {/* Error Alert Banner */}
           {errorMsg && (

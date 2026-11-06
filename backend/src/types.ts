@@ -6,6 +6,8 @@ export interface UserData {
   email?: string;
   avatar?: string;
   about: string;
+  role?: 'admin' | 'user';
+  status?: 'approved' | 'pending' | 'rejected';
   isBusiness: boolean;
   businessName?: string;
   businessCategory?: string;
@@ -23,7 +25,7 @@ export interface MessageData {
   id: string;
   chatId: string;
   senderId: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'product';
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product';
   content: string;
   mediaUrl?: string;
   metadata?: string;

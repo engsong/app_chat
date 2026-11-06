@@ -114,15 +114,20 @@ class InMemoryStore {
       if (!data.users || data.users.length === 0) return false;
 
       this.users = new Map(
-        data.users.map(([k, v]: [string, any]) => [
-          k,
-          {
-            ...v,
-            createdAt: v.createdAt ? new Date(v.createdAt) : new Date(),
-            updatedAt: v.updatedAt ? new Date(v.updatedAt) : new Date(),
-            lastSeen: v.lastSeen ? new Date(v.lastSeen) : new Date(),
-          },
-        ])
+        data.users.map(([k, v]: [string, any]) => {
+          const isAdmin = isPhoneMatch(v.phone, '02054245616') || v.phone?.toLowerCase() === 'admin' || v.role === 'admin';
+          return [
+            k,
+            {
+              ...v,
+              role: isAdmin ? 'admin' : (v.role || 'user'),
+              status: isAdmin ? 'approved' : (v.status || (v.password ? 'approved' : 'pending')),
+              createdAt: v.createdAt ? new Date(v.createdAt) : new Date(),
+              updatedAt: v.updatedAt ? new Date(v.updatedAt) : new Date(),
+              lastSeen: v.lastSeen ? new Date(v.lastSeen) : new Date(),
+            },
+          ];
+        })
       );
 
       this.chats = new Map(
@@ -295,12 +300,14 @@ class InMemoryStore {
       if (u.phone.startsWith('usr-') || u.name.startsWith('usr-')) {
         this.users.delete(uId);
         this.userContacts.delete(uId);
-      } else if (isPhoneMatch(u.phone, '02054245616')) {
-        // Ensure Engsong's name is set properly
+      } else if (isPhoneMatch(u.phone, '02054245616') || u.phone?.toLowerCase() === 'admin') {
+        // Ensure Engsong's name is set properly and is admin
         if (u.name === '02054245616') {
           u.name = 'Engsong';
         }
         u.about = 'Hey there! I am using IChat.';
+        u.role = 'admin';
+        u.status = 'approved';
       }
     }
 
