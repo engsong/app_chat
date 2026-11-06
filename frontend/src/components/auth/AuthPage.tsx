@@ -4,7 +4,6 @@ import {
   User,
   Phone,
   Lock,
-  Building2,
   Eye,
   EyeOff,
   ArrowRight,
@@ -34,19 +33,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
   const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
-  const [regIsBusiness, setRegIsBusiness] = useState(false);
-  const [regBusinessName, setRegBusinessName] = useState('');
-  const [regBusinessCategory, setRegBusinessCategory] = useState('Computers & Electronics');
-  const [regBusinessDescription, setRegBusinessDescription] = useState('');
-  const [regAvatar, setRegAvatar] = useState('https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150');
-
-  const avatarOptions = [
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-    'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-    'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=150',
-    'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=150',
-  ];
 
   // Handle Login
   const handleLogin = async (e: React.FormEvent) => {
@@ -104,11 +90,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
           name: regName.trim(),
           phone: regPhone.trim(),
           password: regPassword,
-          avatar: regAvatar,
-          isBusiness: regIsBusiness,
-          businessName: regIsBusiness ? (regBusinessName.trim() || regName.trim()) : undefined,
-          businessCategory: regIsBusiness ? regBusinessCategory : undefined,
-          businessDescription: regIsBusiness ? regBusinessDescription.trim() : undefined,
+          avatar: '',
+          isBusiness: false,
         }),
       });
 
@@ -330,81 +313,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                 </div>
               </div>
 
-              {/* Avatar Selector */}
-              <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">
-                  Select Profile Photo
-                </label>
-                <div className="flex items-center gap-2">
-                  {avatarOptions.map((av, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setRegAvatar(av)}
-                      className={`relative rounded-full p-0.5 border-2 transition-all ${
-                        regAvatar === av ? 'border-[#00a884] scale-105' : 'border-transparent opacity-60'
-                      }`}
-                    >
-                      <img src={av} alt="" className="w-8 h-8 rounded-full object-cover" />
-                      {regAvatar === av && (
-                        <div className="absolute -bottom-1 -right-1 bg-[#00a884] rounded-full p-0.5 text-white">
-                          <Check className="w-2.5 h-2.5" />
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Business Account Toggle */}
-              <div className="p-3 bg-[#111b21] rounded-xl border border-[#2a3942] space-y-2">
-                <label className="flex items-center justify-between cursor-pointer">
-                  <div className="flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-[#00a884]" />
-                    <span className="text-xs font-semibold text-white">
-                      Create as Business Account
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={regIsBusiness}
-                    onChange={(e) => setRegIsBusiness(e.target.checked)}
-                    className="w-4 h-4 accent-[#00a884] rounded cursor-pointer"
-                  />
-                </label>
-
-                {regIsBusiness && (
-                  <div className="pt-2 space-y-2 border-t border-[#2a3942] animate-fade-in">
-                    <input
-                      type="text"
-                      placeholder="Business Name (e.g. Acme Tech Solutions)"
-                      value={regBusinessName}
-                      onChange={(e) => setRegBusinessName(e.target.value)}
-                      className="w-full bg-[#202c33] border border-[#2a3942] rounded-lg py-1.5 px-3 text-xs text-white placeholder-gray-500 focus:outline-none"
-                    />
-
-                    <select
-                      value={regBusinessCategory}
-                      onChange={(e) => setRegBusinessCategory(e.target.value)}
-                      className="w-full bg-[#202c33] border border-[#2a3942] rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none"
-                    >
-                      <option value="Computers & Electronics">Computers & Electronics</option>
-                      <option value="Retail & Shopping">Retail & Shopping</option>
-                      <option value="Food & Beverage">Food & Beverage</option>
-                      <option value="Professional Services">Professional Services</option>
-                      <option value="Health & Beauty">Health & Beauty</option>
-                    </select>
-
-                    <textarea
-                      rows={2}
-                      placeholder="Business description & services..."
-                      value={regBusinessDescription}
-                      onChange={(e) => setRegBusinessDescription(e.target.value)}
-                      className="w-full bg-[#202c33] border border-[#2a3942] rounded-lg py-1.5 px-3 text-xs text-white placeholder-gray-500 focus:outline-none"
-                    />
-                  </div>
-                )}
-              </div>
 
               <button
                 type="submit"
