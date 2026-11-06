@@ -53,7 +53,10 @@ jobs:
       - name: 📱 Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools cmdline-tools;latest'
+
+      - name: 🔑 Accept Android Licenses
+        run: yes | sdkmanager --licenses || true
 
       - name: 🟢 Setup Node.js 22
         uses: actions/setup-node@v4
@@ -71,7 +74,20 @@ jobs:
         working-directory: frontend/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug -x lint --no-daemon --stacktrace 2>&1 | tee /tmp/gradle_output.log || {
+            echo "## ❌ Gradle Build Error Details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 120 /tmp/gradle_output.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          }
+
+      - name: 📋 Upload Gradle Log on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-failure-log
+          path: /tmp/gradle_output.log
 
       - name: 📤 Upload APK Artifact to GitHub
         uses: actions/upload-artifact@v4
@@ -92,4 +108,5 @@ jobs:
           PASS="${SERVER_PASSWORD:-Changeme1!2@}"
           sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USER}@${HOST}" "mkdir -p /var/www/chat-app/downloads"
           sshpass -p "$PASS" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null frontend/android/app/build/outputs/apk/debug/app-debug.apk "${USER}@${HOST}:/var/www/chat-app/downloads/ichat.apk"
+          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USER}@${HOST}" "chmod 644 /var/www/chat-app/downloads/ichat.apk && ls -la /var/www/chat-app/downloads/ichat.apk"
           echo "🎉 APK published to https://chat.on-excapp.app/download/ichat.apk"
