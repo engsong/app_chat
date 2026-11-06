@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# Acquire exclusive file lock to prevent concurrent build collisions
+LOCK_FILE="/var/run/chat-app-deploy.lock"
+exec 200>"$LOCK_FILE"
+flock -x -w 300 200 || { echo "❌ Could not acquire deployment lock within 5 minutes. Another deployment is in progress."; exit 1; }
+
 echo "=========================================="
 echo "🚀 Starting Automated Deployment on Server"
 echo "=========================================="
