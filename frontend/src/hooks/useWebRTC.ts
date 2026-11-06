@@ -60,23 +60,65 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
   const callTimeoutRef = useRef<any>(null);          // 1-minute timeout for outgoing ringing
   const incomingCallTimeoutRef = useRef<any>(null);  // 1-minute auto-decline for incoming calls
 
-  // Initialize Local Media Stream
+  // Helper to create synthetic silent audio track when microphone hardware is unavailable
+  const createSyntheticAudioTrack = (): MediaStreamTrack => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const dst = ctx.createMediaStreamDestination();
+        osc.connect(dst);
+        osc.start();
+        const track = dst.stream.getAudioTracks()[0];
+        if (track) {
+          track.enabled = false;
+          return track;
+        }
+      }
+    } catch (_) {}
+    // Dummy track object fallback
+    return new MediaStream().getAudioTracks()[0];
+  };
+
+  // Initialize Local Media Stream safely (never throws)
   const getMediaStream = async (video: boolean): Promise<MediaStream> => {
     if (localStreamRef.current) {
       return localStreamRef.current;
     }
+
+    if (video) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        });
+        localStreamRef.current = stream;
+        return stream;
+      } catch (err) {
+        console.warn('Video + Audio failed, falling back to audio only', err);
+      }
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true },
-        video: video ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } : false,
       });
       localStreamRef.current = stream;
       return stream;
     } catch (err) {
-      console.warn('getUserMedia error, falling back to audio only', err);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      localStreamRef.current = stream;
-      return stream;
+      console.warn('Microphone hardware unavailable or permission denied, using silent fallback track', err);
+      try {
+        const silentTrack = createSyntheticAudioTrack();
+        if (silentTrack) {
+          const fallbackStream = new MediaStream([silentTrack]);
+          localStreamRef.current = fallbackStream;
+          return fallbackStream;
+        }
+      } catch (_) {}
+      const emptyStream = new MediaStream();
+      localStreamRef.current = emptyStream;
+      return emptyStream;
     }
   };
 
@@ -153,56 +195,66 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     currentUserAvatar?: string
   ) => {
     if (!socket || !currentUserId) return;
+    if (!socket.connected) {
+      console.log('[WebRTC] Socket not connected, reconnecting before starting call...');
+      socket.connect();
+    }
 
-    callPartnerIdRef.current = targetUserId;
-    setIsVideoCall(video);
-    setRemoteUserName(targetName);
-    setRemoteUserAvatar(targetAvatar);
-    setIsCalling(true);
-    soundEffects.startOutgoingRingtone();
+    try {
+      callPartnerIdRef.current = targetUserId;
+      setIsVideoCall(video);
+      setRemoteUserName(targetName);
+      setRemoteUserAvatar(targetAvatar);
+      setIsCalling(true);
+      soundEffects.startOutgoingRingtone();
 
-    const stream = await getMediaStream(video);
+      const stream = await getMediaStream(video);
 
-    const pc = new RTCPeerConnection(ICE_SERVERS);
-    peerConnectionRef.current = pc;
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+      peerConnectionRef.current = pc;
 
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
-    pc.ontrack = (event) => {
-      console.log('[WebRTC] Received remote track');
-      if (event.streams && event.streams[0]) {
-        remoteStreamRef.current = event.streams[0];
-      }
-    };
+      pc.ontrack = (event) => {
+        console.log('[WebRTC] Received remote track');
+        if (event.streams && event.streams[0]) {
+          remoteStreamRef.current = event.streams[0];
+        }
+      };
 
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit('ice_candidate', { to: targetUserId, candidate: event.candidate });
-      }
-    };
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('ice_candidate', { to: targetUserId, candidate: event.candidate });
+        }
+      };
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
 
-    // Start 1-minute (60 seconds) outgoing ringing timeout - auto decline if no answer
-    if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
-    callTimeoutRef.current = setTimeout(() => {
-      console.log('[WebRTC] Outgoing call timed out after 1 minute (no answer)');
-      if (socket && targetUserId) {
-        socket.emit('end_call', { to: targetUserId, reason: 'no_answer' });
-      }
+      // Start 1-minute (60 seconds) outgoing ringing timeout - auto decline if no answer
+      if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = setTimeout(() => {
+        console.log('[WebRTC] Outgoing call timed out after 1 minute (no answer)');
+        if (socket && targetUserId) {
+          socket.emit('end_call', { to: targetUserId, reason: 'no_answer' });
+        }
+        cleanupCall();
+      }, 60000);
+
+      socket.emit('call_user', {
+        userToCall: targetUserId,
+        signalData: offer,
+        from: currentUserId,
+        callerName: currentUserName || 'IChat User',
+        callerAvatar: currentUserAvatar,
+        isVideo: video,
+        chatId,
+      });
+    } catch (err) {
+      console.error('[WebRTC] Error initiating call:', err);
       cleanupCall();
-    }, 60000);
-
-    socket.emit('call_user', {
-      userToCall: targetUserId,
-      signalData: offer,
-      from: currentUserId,
-      callerName: currentUserName || 'IChat User',
-      callerAvatar: currentUserAvatar,
-      isVideo: video,
-      chatId,
-    });
+      alert('Unable to start call. Please check camera and microphone permissions.');
+    }
   };
 
   const answerCall = async () => {

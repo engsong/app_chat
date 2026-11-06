@@ -110,19 +110,92 @@ interface ActiveCallSession {
   chatId?: string;
   startedAt: Date;
   connectedAt?: Date;
+  signalData?: any;
   timeoutHandle?: NodeJS.Timeout;
+}
+
+// Module-level mappings
+const userSocketMap = new Map<string, Set<string>>();
+const socketUserMap = new Map<string, string>();
+const activeGroupCalls = new Map<string, Map<string, { socketId: string; isVideo: boolean; name: string; avatar?: string }>>();
+const active1on1Calls = new Map<string, ActiveCallSession>();
+
+export function saveAndBroadcastMessage(data: {
+  chatId: string;
+  senderId: string;
+  content: string;
+  type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product' | 'call';
+  mediaUrl?: string;
+  metadata?: string;
+}) {
+  const { chatId, senderId, content, type = 'text', mediaUrl, metadata } = data;
+  const chat = store.chats.get(chatId);
+  if (!chat) return null;
+
+  const isRecipientOnline = chat.memberIds.some(
+    (mId) => mId !== senderId && userSocketMap.has(mId) && (userSocketMap.get(mId)?.size || 0) > 0
+  );
+
+  const newMessage: MessageData = {
+    id: `msg-${uuidv4()}`,
+    chatId,
+    senderId,
+    type,
+    content,
+    mediaUrl,
+    metadata,
+    status: isRecipientOnline ? 'delivered' : 'sent',
+    createdAt: new Date(),
+  };
+
+  store.messages.set(newMessage.id, newMessage);
+  chat.lastMessageAt = new Date();
+  if (chat.hiddenForUserIds && chat.hiddenForUserIds.length > 0) {
+    chat.hiddenForUserIds = [];
+  }
+  store.saveToFile();
+
+  const enrichedChat = getEnrichedChat(chatId) || chat;
+
+  if (ioInstance) {
+    chat.memberIds.forEach((memberId) => {
+      ioInstance?.to(`user_${memberId}`).emit('new_message', { message: newMessage, chat: enrichedChat });
+
+      const sockets = userSocketMap.get(memberId);
+      if (sockets) {
+        sockets.forEach((sId) => {
+          ioInstance?.to(sId).emit('new_message', { message: newMessage, chat: enrichedChat });
+        });
+      }
+
+      if (memberId !== senderId) {
+        const sender = store.users.get(senderId);
+        const senderName = sender?.name || 'IChat User';
+        const title = chat.isGroup ? `${chat.name} (${senderName})` : senderName;
+        let body = content || 'New message';
+        if (type === 'image') body = '📷 Photo';
+        else if (type === 'video') body = '🎥 Video';
+        else if (type === 'audio') body = '🎵 Voice message';
+        else if (type === 'document') body = '📄 Document';
+        else if (type === 'location') body = '📍 Location shared';
+        else if (type === 'call') body = content || '📞 Call';
+
+        sendPushToUser(memberId, {
+          title,
+          body,
+          icon: sender?.avatar || '/logo.png',
+          tag: `chat-${chat.id}`,
+          data: { chatId: chat.id, url: 'https://chat.on-excapp.app' },
+        });
+      }
+    });
+  }
+
+  return newMessage;
 }
 
 export function setupSocketHandlers(io: Server) {
   ioInstance = io;
-  // Mapping of userId -> Set of socketIds (to support multiple tabs/devices)
-  const userSocketMap = new Map<string, Set<string>>();
-  // Mapping of socketId -> userId
-  const socketUserMap = new Map<string, string>();
-  // Active group calls: groupId -> Map<userId, socketId>
-  const activeGroupCalls = new Map<string, Map<string, { socketId: string; isVideo: boolean; name: string; avatar?: string }>>();
-  // Active 1-on-1 calls: pairKey -> ActiveCallSession
-  const active1on1Calls = new Map<string, ActiveCallSession>();
 
   io.on('connection', (socket: Socket) => {
     console.log(`[Socket] Client connected: ${socket.id}`);
@@ -177,6 +250,23 @@ export function setupSocketHandlers(io: Server) {
           });
         });
       }
+
+      // Check if there is an active incoming call waiting for this user (e.g. mobile was opening the app)
+      for (const [_, session] of active1on1Calls.entries()) {
+        if (session.receiverId === userId && !session.connectedAt) {
+          const caller = store.users.get(session.callerId);
+          console.log(`[Socket] Re-emitting pending incoming call to reconnected user: ${userId}`);
+          socket.emit('incoming_call', {
+            signal: session.signalData || null,
+            from: session.callerId,
+            callerName: caller?.name || 'IChat User',
+            callerAvatar: caller?.avatar,
+            isVideo: session.isVideo,
+            chatId: session.chatId,
+            callId: session.callId,
+          });
+        }
+      }
     });
 
     // 2. Chat Messaging
@@ -188,70 +278,9 @@ export function setupSocketHandlers(io: Server) {
       mediaUrl?: string;
       metadata?: string;
     }) => {
-      const { chatId, senderId, content, type = 'text', mediaUrl, metadata } = data;
-      const chat = store.chats.get(chatId);
-      if (!chat) return;
-
-      // Check if recipient(s) are online (mobile phone has internet access & connected to server)
-      const isRecipientOnline = chat.memberIds.some(
-        (mId) => mId !== senderId && userSocketMap.has(mId) && (userSocketMap.get(mId)?.size || 0) > 0
-      );
-
-      const newMessage: MessageData = {
-        id: `msg-${uuidv4()}`,
-        chatId,
-        senderId,
-        type,
-        content,
-        mediaUrl,
-        metadata,
-        status: isRecipientOnline ? 'delivered' : 'sent',
-        createdAt: new Date(),
-      };
-
-      store.messages.set(newMessage.id, newMessage);
-      chat.lastMessageAt = new Date();
-      if (chat.hiddenForUserIds && chat.hiddenForUserIds.length > 0) {
-        chat.hiddenForUserIds = [];
-      }
-      store.saveToFile();
-
-      const enrichedChat = getEnrichedChat(chatId) || chat;
-
-      // Emit to all members in this chat (via user room and socket ID)
-      chat.memberIds.forEach((memberId) => {
-        io.to(`user_${memberId}`).emit('new_message', { message: newMessage, chat: enrichedChat });
-
-        const sockets = userSocketMap.get(memberId);
-        if (sockets) {
-          sockets.forEach((sId) => {
-            io.to(sId).emit('new_message', { message: newMessage, chat: enrichedChat });
-          });
-        }
-
-        // Send Web Push notification to members other than sender (works on mobile lock screen & background)
-        if (memberId !== senderId) {
-          const sender = store.users.get(senderId);
-          const senderName = sender?.name || 'IChat User';
-          const title = chat.isGroup ? `${chat.name} (${senderName})` : senderName;
-          let body = content || 'New message';
-          if (type === 'image') body = '📷 Photo';
-          else if (type === 'video') body = '🎥 Video';
-          else if (type === 'audio') body = '🎵 Voice message';
-          else if (type === 'document') body = '📄 Document';
-          else if (type === 'location') body = '📍 Location shared';
-          else if (type === 'call') body = content || '📞 Call';
-
-          sendPushToUser(memberId, {
-            title,
-            body,
-            icon: sender?.avatar || '/logo.png',
-            tag: `chat-${chat.id}`,
-            data: { chatId: chat.id, url: 'https://chat.on-excapp.app' },
-          });
-        }
-      });
+      saveAndBroadcastMessage(data);
     });
+
 
     socket.on('mark_message_delivered', ({ messageId, chatId }: { messageId: string; chatId: string }) => {
       const msg = store.messages.get(messageId);
@@ -510,6 +539,7 @@ export function setupSocketHandlers(io: Server) {
         isVideo: !!data.isVideo,
         chatId: targetChatId,
         startedAt,
+        signalData: data.signalData,
         timeoutHandle,
       });
 

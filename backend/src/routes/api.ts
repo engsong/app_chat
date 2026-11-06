@@ -9,6 +9,7 @@ import {
   broadcastChatCleared,
   broadcastChatDeleted,
   broadcastUserUpdated,
+  saveAndBroadcastMessage,
 } from '../sockets/socketHandler.js';
 
 import { VAPID_PUBLIC_KEY, sendPushToUser } from '../services/pushService.js';
@@ -567,6 +568,30 @@ apiRouter.get('/chats/:id/messages', (req, res) => {
     });
 
   res.json(messages);
+});
+
+// Send message via HTTP POST (robust fallback ensuring delivery & persistence)
+apiRouter.post('/messages', (req, res) => {
+  const { chatId, senderId, content, type = 'text', mediaUrl, metadata } = req.body;
+  if (!chatId || !senderId) {
+    return res.status(400).json({ error: 'chatId and senderId are required' });
+  }
+
+  const msg = saveAndBroadcastMessage({
+    chatId,
+    senderId,
+    content: content || '',
+    type,
+    mediaUrl,
+    metadata,
+  });
+
+  if (!msg) {
+    return res.status(404).json({ error: 'Chat not found' });
+  }
+
+  const sender = store.users.get(senderId);
+  res.json({ ...msg, sender });
 });
 
 // ==========================================

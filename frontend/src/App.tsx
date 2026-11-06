@@ -590,26 +590,69 @@ export const App: React.FC = () => {
     };
   }, [currentUser, activeChatId, socket]);
 
-  // Send message handler
-  const handleSendMessage = (
+  // Send message handler with optimistic UI update and dual socket + HTTP POST delivery
+  const handleSendMessage = async (
     content: string,
     type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product' | 'call' = 'text',
     metadata?: string,
     mediaUrl?: string
   ) => {
-    if (!socket || !activeChatId || !currentUser) return;
+    if (!activeChatId || !currentUser) return;
 
-    socket.emit('send_message', {
+    const tempId = `msg-temp-${Date.now()}`;
+    const optimisticMsg: Message = {
+      id: tempId,
       chatId: activeChatId,
       senderId: currentUser.id,
       content,
       type,
       metadata,
       mediaUrl,
-    });
+      status: 'sent',
+      createdAt: new Date().toISOString(),
+    };
+
+    // Optimistically add message so sender on PC sees it immediately
+    setMessages((prev) => [...prev, optimisticMsg]);
+
+    // Emit via socket if connected
+    if (socket && socket.connected) {
+      socket.emit('send_message', {
+        chatId: activeChatId,
+        senderId: currentUser.id,
+        content,
+        type,
+        metadata,
+        mediaUrl,
+      });
+    }
+
+    // Always deliver to server via HTTP POST to guarantee persistence and delivery to mobile
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatId: activeChatId,
+          senderId: currentUser.id,
+          content,
+          type,
+          metadata,
+          mediaUrl,
+        }),
+      });
+      if (res.ok) {
+        const savedMsg = await res.json();
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? savedMsg : m))
+        );
+      }
+    } catch (err) {
+      console.warn('HTTP message delivery notice:', err);
+    }
   };
 
-  // Start 1-on-1 Calls
+  // Start 1-on-1 Calls with resilient user resolution
   const handleStartAudioCall = () => {
     const activeChat = chats.find((c) => c.id === activeChatId);
     if (!activeChat || !currentUser) return;
@@ -617,9 +660,19 @@ export const App: React.FC = () => {
     if (activeChat.isGroup) {
       webrtc.joinGroupCall(activeChat.id, { id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }, false);
     } else {
-      const other = activeChat.members?.find((m) => m.userId !== currentUser.id)?.user;
-      if (other) {
-        webrtc.startCall(other.id, other.name, other.avatar, false, activeChat.id, currentUser.name, currentUser.avatar);
+      const otherMember = activeChat.members?.find((m) => m.userId !== currentUser.id);
+      const otherId = otherMember?.userId || activeChat.memberIds?.find((id) => id !== currentUser.id);
+      const other = otherMember?.user || allUsers.find((u) => u.id === otherId);
+      if (otherId) {
+        webrtc.startCall(
+          otherId,
+          other?.name || other?.phone || 'User',
+          other?.avatar,
+          false,
+          activeChat.id,
+          currentUser.name,
+          currentUser.avatar
+        );
       }
     }
   };
@@ -631,9 +684,19 @@ export const App: React.FC = () => {
     if (activeChat.isGroup) {
       webrtc.joinGroupCall(activeChat.id, { id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }, true);
     } else {
-      const other = activeChat.members?.find((m) => m.userId !== currentUser.id)?.user;
-      if (other) {
-        webrtc.startCall(other.id, other.name, other.avatar, true, activeChat.id, currentUser.name, currentUser.avatar);
+      const otherMember = activeChat.members?.find((m) => m.userId !== currentUser.id);
+      const otherId = otherMember?.userId || activeChat.memberIds?.find((id) => id !== currentUser.id);
+      const other = otherMember?.user || allUsers.find((u) => u.id === otherId);
+      if (otherId) {
+        webrtc.startCall(
+          otherId,
+          other?.name || other?.phone || 'User',
+          other?.avatar,
+          true,
+          activeChat.id,
+          currentUser.name,
+          currentUser.avatar
+        );
       }
     }
   };
