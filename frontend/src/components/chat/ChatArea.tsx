@@ -336,7 +336,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const isOtherTyping = typingUsers.length > 0;
 
   return (
-    <div className="flex-1 flex flex-col h-full h-[100dvh] bg-[#0b141a] relative overflow-hidden">
+    <div className="flex-1 flex flex-col h-full min-h-0 max-h-full w-full bg-[#0b141a] relative overflow-hidden">
       {/* Hidden file inputs for image and document upload */}
       <input
         type="file"
@@ -353,8 +353,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         className="hidden"
       />
 
-      {/* 1. Chat Header (Sticky & Never Shrinks) */}
-      <div className="h-16 flex-shrink-0 px-3 sm:px-4 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between z-20 sticky top-0">
+      {/* 1. Chat Header */}
+      <div className="h-16 flex-shrink-0 px-3 sm:px-4 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between z-20">
         <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
           {onBack && (
             <button
@@ -442,7 +442,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       {/* 2. Messages List Body */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-2.5 whatsapp-chat-bg overscroll-contain"
+        className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-2.5 whatsapp-chat-bg overscroll-contain"
       >
         {/* Encryption Security Badge */}
         <div className="flex justify-center mb-3">
@@ -492,7 +492,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       <img
                         src={msg.mediaUrl}
                         alt="Photo"
-                        className="max-h-72 w-full object-cover rounded-xl transition-transform group-hover:scale-105"
+                        className="max-h-56 sm:max-h-72 w-full max-w-[260px] sm:max-w-xs object-cover rounded-xl transition-transform group-hover:scale-105"
                       />
                       <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <span className="p-2 rounded-full bg-black/60 text-white">
@@ -684,8 +684,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
       )}
 
-      {/* 4. Chat Input Bar (Sticky & Never Shrinks) */}
-      <div className="min-h-16 flex-shrink-0 px-2 sm:px-4 py-2 bg-[#202c33] border-t border-[#2a3942] flex items-center gap-1.5 sm:gap-2 z-20 sticky bottom-0">
+      {/* 4. Chat Input Bar */}
+      <div className="flex-shrink-0 px-2 sm:px-4 py-2.5 bg-[#202c33] border-t border-[#2a3942] flex items-center gap-1.5 sm:gap-2 z-20 pb-[max(0.6rem,env(safe-area-inset-bottom))]">
         {isRecording ? (
           // Recording Audio Bar
           <div className="flex-1 flex items-center justify-between bg-[#111b21] rounded-xl px-3 py-2 border border-[#2a3942] animate-fade-in">
