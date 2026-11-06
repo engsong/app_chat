@@ -218,7 +218,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                   <input
                     type="text"
                     required
-                    placeholder="Enter phone number (e.g. 02054245616)"
+                    placeholder="Enter phone number (e.g. 02098989898)"
                     value={loginPhone}
                     onChange={(e) => setLoginPhone(e.target.value)}
                     className="w-full bg-[#111b21] border border-[#2a3942] focus:border-[#00a884] rounded-xl py-2.5 pl-10 pr-4 text-sm text-white placeholder-gray-500 focus:outline-none transition-colors"
