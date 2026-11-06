@@ -51,6 +51,60 @@ export function getNotificationPermission(): NotificationPermission {
   return Notification.permission;
 }
 
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+// Subscribe user device to background Web Push protocol (wakes device on lock screen)
+export async function subscribeUserToWebPush(userId: string): Promise<boolean> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return false;
+  }
+
+  if (Notification.permission !== 'granted') {
+    return false;
+  }
+
+  try {
+    const reg = swRegistration || (await navigator.serviceWorker.ready);
+    if (!reg || !reg.pushManager) return false;
+
+    // Fetch VAPID public key
+    const res = await fetch('/api/push/vapid-public-key');
+    if (!res.ok) return false;
+    const { publicKey } = await res.json();
+    if (!publicKey) return false;
+
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+    }
+
+    if (sub) {
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, subscription: sub }),
+      });
+      console.log('[Notification] Subscribed user to Web Push successfully');
+      return true;
+    }
+  } catch (err) {
+    console.warn('[Notification] Failed to subscribe to Web Push:', err);
+  }
+  return false;
+}
+
 // Show message notification
 export async function showMessageNotification(options: {
   title: string;

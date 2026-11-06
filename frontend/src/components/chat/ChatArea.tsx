@@ -982,9 +982,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   )}
                   <span>{time}</span>
                   {isMe && (
-                    <span>
+                    <span
+                      title={
+                        msg.status === 'read'
+                          ? 'Read'
+                          : msg.status === 'delivered'
+                          ? 'Delivered'
+                          : 'Sent'
+                      }
+                    >
                       {msg.status === 'read' ? (
                         <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+                      ) : msg.status === 'delivered' ? (
+                        <CheckCheck className="w-3.5 h-3.5 text-white/70" />
                       ) : (
                         <Check className="w-3.5 h-3.5 text-white/70" />
                       )}

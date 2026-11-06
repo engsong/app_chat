@@ -417,9 +417,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {/* Last message preview */}
                   <div className="flex items-center gap-1 text-xs text-[#8696a0] truncate pr-2">
                     {isMe && lastMsg && (
-                      <span>
+                      <span
+                        title={
+                          lastMsg.status === 'read'
+                            ? 'Read'
+                            : lastMsg.status === 'delivered'
+                            ? 'Delivered'
+                            : 'Sent'
+                        }
+                      >
                         {lastMsg.status === 'read' ? (
                           <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb] inline" />
+                        ) : lastMsg.status === 'delivered' ? (
+                          <CheckCheck className="w-3.5 h-3.5 text-gray-400 inline" />
                         ) : (
                           <Check className="w-3.5 h-3.5 text-gray-400 inline" />
                         )}

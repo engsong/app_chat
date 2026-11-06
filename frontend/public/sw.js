@@ -9,6 +9,39 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Handle incoming background push events from Web Push protocol (FCM / Mozilla)
+self.addEventListener('push', (event) => {
+  let payload = {
+    title: 'IChat',
+    body: 'New notification on IChat',
+    icon: '/logo.png',
+    badge: '/logo.png',
+    tag: 'ichat-notification',
+    data: { url: '/' },
+  };
+
+  if (event.data) {
+    try {
+      payload = { ...payload, ...event.data.json() };
+    } catch (_) {
+      payload.body = event.data.text();
+    }
+  }
+
+  const options = {
+    body: payload.body,
+    icon: payload.icon || '/logo.png',
+    badge: '/logo.png',
+    tag: payload.tag || 'ichat-notification',
+    vibrate: payload.vibrate || [300, 100, 300],
+    data: payload.data || { url: '/' },
+    requireInteraction: payload.requireInteraction || false,
+    renotify: true,
+  };
+
+  event.waitUntil(self.registration.showNotification(payload.title, options));
+});
+
 // Handle notification click: bring user to the active window or open app
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
@@ -35,24 +68,4 @@ self.addEventListener('notificationclick', (event) => {
       }
     })
   );
-});
-
-// Handle incoming background push events if supported
-self.addEventListener('push', (event) => {
-  if (!event.data) return;
-  try {
-    const payload = event.data.json();
-    const options = {
-      body: payload.body || 'New message on IChat',
-      icon: payload.icon || '/logo.png',
-      badge: '/logo.png',
-      vibrate: payload.vibrate || [200, 100, 200],
-      tag: payload.tag || 'ichat-notification',
-      data: payload.data || {},
-      requireInteraction: payload.requireInteraction || false,
-    };
-    event.waitUntil(self.registration.showNotification(payload.title || 'IChat', options));
-  } catch (e) {
-    console.error('[SW] Error handling push event:', e);
-  }
 });

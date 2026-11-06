@@ -75,6 +75,7 @@ class InMemoryStore {
   public statuses: Map<string, StatusData> = new Map();
   public calls: Map<string, CallData> = new Map();
   public userContacts: Map<string, Set<string>> = new Map(); // userId -> Set<contactUserId>
+  public pushSubscriptions: Map<string, Array<any>> = new Map(); // userId -> PushSubscription[]
 
   constructor() {
     if (!this.loadFromFile()) {
@@ -99,6 +100,7 @@ class InMemoryStore {
         statuses: Array.from(this.statuses.entries()),
         calls: Array.from(this.calls.entries()),
         userContacts: Array.from(this.userContacts.entries()).map(([k, set]) => [k, Array.from(set)]),
+        pushSubscriptions: Array.from(this.pushSubscriptions.entries()),
       };
       fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf8');
     } catch (err) {
@@ -203,6 +205,8 @@ class InMemoryStore {
           },
         ])
       );
+
+      this.pushSubscriptions = new Map(data.pushSubscriptions || []);
 
       // Clean up legacy demo accounts
       const demoIds = ['usr-biz-1', 'usr-client-2', 'usr-client-3', 'usr-biz-4'];

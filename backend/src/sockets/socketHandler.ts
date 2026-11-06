@@ -2,6 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { store } from '../store.js';
 import { v4 as uuidv4 } from 'uuid';
 import { CallData, MessageData } from '../types.js';
+import { sendPushToUser } from '../services/pushService.js';
 
 export function getEnrichedChat(chatId: string, forUserId?: string) {
   const chat = store.chats.get(chatId);
@@ -153,6 +154,29 @@ export function setupSocketHandlers(io: Server) {
       const onlineUserIds = Array.from(userSocketMap.keys());
       socket.emit('online_users_list', onlineUserIds);
       console.log(`[Socket] User online: ${userId} (${socket.id})`);
+
+      // Update pending 'sent' messages to 'delivered' because user's device is now connected to internet
+      const deliveredChatIds = new Set<string>();
+      for (const [_, msg] of store.messages.entries()) {
+        if (msg.status === 'sent' && msg.senderId !== userId) {
+          const chat = store.chats.get(msg.chatId);
+          if (chat && chat.memberIds.includes(userId)) {
+            msg.status = 'delivered';
+            deliveredChatIds.add(chat.id);
+          }
+        }
+      }
+      if (deliveredChatIds.size > 0) {
+        store.saveToFile();
+        deliveredChatIds.forEach((cId) => {
+          const chat = store.chats.get(cId);
+          const enriched = getEnrichedChat(cId) || chat;
+          chat?.memberIds.forEach((mId) => {
+            io.to(`user_${mId}`).emit('messages_marked_delivered', { chatId: cId, chat: enriched });
+            userSocketMap.get(mId)?.forEach((sId) => io.to(sId).emit('messages_marked_delivered', { chatId: cId, chat: enriched }));
+          });
+        });
+      }
     });
 
     // 2. Chat Messaging
@@ -160,7 +184,7 @@ export function setupSocketHandlers(io: Server) {
       chatId: string;
       senderId: string;
       content: string;
-      type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product';
+      type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product' | 'call';
       mediaUrl?: string;
       metadata?: string;
     }) => {
@@ -168,7 +192,12 @@ export function setupSocketHandlers(io: Server) {
       const chat = store.chats.get(chatId);
       if (!chat) return;
 
-      const newMessage = {
+      // Check if recipient(s) are online (mobile phone has internet access & connected to server)
+      const isRecipientOnline = chat.memberIds.some(
+        (mId) => mId !== senderId && userSocketMap.has(mId) && (userSocketMap.get(mId)?.size || 0) > 0
+      );
+
+      const newMessage: MessageData = {
         id: `msg-${uuidv4()}`,
         chatId,
         senderId,
@@ -176,7 +205,7 @@ export function setupSocketHandlers(io: Server) {
         content,
         mediaUrl,
         metadata,
-        status: 'sent' as const,
+        status: isRecipientOnline ? 'delivered' : 'sent',
         createdAt: new Date(),
       };
 
@@ -199,7 +228,42 @@ export function setupSocketHandlers(io: Server) {
             io.to(sId).emit('new_message', { message: newMessage, chat: enrichedChat });
           });
         }
+
+        // Send Web Push notification to members other than sender (works on mobile lock screen & background)
+        if (memberId !== senderId) {
+          const sender = store.users.get(senderId);
+          const senderName = sender?.name || 'IChat User';
+          const title = chat.isGroup ? `${chat.name} (${senderName})` : senderName;
+          let body = content || 'New message';
+          if (type === 'image') body = '📷 Photo';
+          else if (type === 'video') body = '🎥 Video';
+          else if (type === 'audio') body = '🎵 Voice message';
+          else if (type === 'document') body = '📄 Document';
+          else if (type === 'location') body = '📍 Location shared';
+          else if (type === 'call') body = content || '📞 Call';
+
+          sendPushToUser(memberId, {
+            title,
+            body,
+            icon: sender?.avatar || '/logo.png',
+            tag: `chat-${chat.id}`,
+            data: { chatId: chat.id, url: 'https://chat.on-excapp.app' },
+          });
+        }
       });
+    });
+
+    socket.on('mark_message_delivered', ({ messageId, chatId }: { messageId: string; chatId: string }) => {
+      const msg = store.messages.get(messageId);
+      if (msg && msg.status === 'sent') {
+        msg.status = 'delivered';
+        store.saveToFile();
+        const chat = store.chats.get(chatId);
+        chat?.memberIds.forEach((mId) => {
+          io.to(`user_${mId}`).emit('messages_marked_delivered', { chatId, messageId });
+          userSocketMap.get(mId)?.forEach((sId) => io.to(sId).emit('messages_marked_delivered', { chatId, messageId }));
+        });
+      }
     });
 
     // Typing Indicators
@@ -253,6 +317,37 @@ export function setupSocketHandlers(io: Server) {
           sockets.forEach((sId) => io.to(sId).emit('messages_marked_read', { chatId, userId }));
         }
       });
+    });
+
+    // Delivery receipts (marks message as delivered when recipient's device receives it)
+    socket.on('mark_message_delivered', (data: { messageId?: string; chatId: string }) => {
+      const { messageId, chatId } = data;
+      let changed = false;
+      if (messageId) {
+        const msg = store.messages.get(messageId);
+        if (msg && msg.status === 'sent') {
+          msg.status = 'delivered';
+          changed = true;
+        }
+      } else if (chatId) {
+        for (const [_, msg] of store.messages.entries()) {
+          if (msg.chatId === chatId && msg.status === 'sent') {
+            msg.status = 'delivered';
+            changed = true;
+          }
+        }
+      }
+
+      if (changed) {
+        store.saveToFile();
+        const chat = store.chats.get(chatId);
+        if (chat) {
+          chat.memberIds.forEach((mId) => {
+            io.to(`user_${mId}`).emit('messages_marked_delivered', { chatId, messageId });
+            userSocketMap.get(mId)?.forEach((sId) => io.to(sId).emit('messages_marked_delivered', { chatId, messageId }));
+          });
+        }
+      }
     });
 
     // Delete a single message
@@ -435,6 +530,16 @@ export function setupSocketHandlers(io: Server) {
           io.to(sId).emit('incoming_call', payload);
         });
       }
+
+      // Send Web Push notification for incoming call (shows on mobile lock screen even if app closed)
+      sendPushToUser(data.userToCall, {
+        title: data.isVideo ? '📹 Incoming Video Call' : '📞 Incoming Voice Call',
+        body: `${data.callerName} is calling you... Tap to answer.`,
+        icon: data.callerAvatar || '/logo.png',
+        tag: 'incoming-call',
+        requireInteraction: true,
+        data: { url: 'https://chat.on-excapp.app', type: 'call' },
+      });
     });
 
     socket.on('accept_call', (data: { signal: any; to: string }) => {

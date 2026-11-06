@@ -23,6 +23,7 @@ import {
   registerServiceWorker,
   requestNotificationPermission,
   showMessageNotification,
+  subscribeUserToWebPush,
 } from './utils/notifications.js';
 
 export const App: React.FC = () => {
@@ -209,6 +210,11 @@ export const App: React.FC = () => {
     }
     fetchContacts(currentUser.id);
 
+    // Subscribe device to Web Push (FCM) for background lock screen notifications
+    subscribeUserToWebPush(currentUser.id).catch((err) => {
+      console.warn('[Push] Background push registration notice:', err);
+    });
+
     const loadUserChats = async () => {
       try {
         const res = await fetch(`/api/chats?userId=${currentUser.id}`);
@@ -269,6 +275,14 @@ export const App: React.FC = () => {
     if (!socket || !currentUser) return;
 
     const handleNewMessage = (data: { message: Message; chat: Chat }) => {
+      // If received from someone else, acknowledge delivery back to server so sender sees double ticks
+      if (data.message.senderId !== currentUser.id) {
+        socket.emit('mark_message_delivered', {
+          messageId: data.message.id,
+          chatId: data.message.chatId,
+        });
+      }
+
       // Append if in current chat
       if (data.message.chatId === activeChatId) {
         setMessages((prev) => {
@@ -397,6 +411,28 @@ export const App: React.FC = () => {
       );
     };
 
+    const handleMessagesMarkedDelivered = (data: { chatId: string; messageId?: string }) => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.chatId === data.chatId && (m.status === 'sent' || (data.messageId && m.id === data.messageId))) {
+            return { ...m, status: 'delivered' };
+          }
+          return m;
+        })
+      );
+      setChats((prev) =>
+        prev.map((c) => {
+          if (c.id === data.chatId && c.lastMessage && (c.lastMessage.status === 'sent' || (data.messageId && c.lastMessage.id === data.messageId))) {
+            return {
+              ...c,
+              lastMessage: { ...c.lastMessage, status: 'delivered' },
+            };
+          }
+          return c;
+        })
+      );
+    };
+
     const handleUserTyping = (data: { chatId: string; userId: string }) => {
       if (data.chatId === activeChatId) {
         setTypingUsers((prev) => (prev.includes(data.userId) ? prev : [...prev, data.userId]));
@@ -482,6 +518,7 @@ export const App: React.FC = () => {
     socket.on('new_message', handleNewMessage);
     socket.on('new_chat', handleNewChat);
     socket.on('messages_marked_read', handleMessagesMarkedRead);
+    socket.on('messages_marked_delivered', handleMessagesMarkedDelivered);
     socket.on('user_typing', handleUserTyping);
     socket.on('user_stopped_typing', handleUserStoppedTyping);
     socket.on('user_status_changed', handleUserStatusChanged);
@@ -494,6 +531,7 @@ export const App: React.FC = () => {
       socket.off('new_message', handleNewMessage);
       socket.off('new_chat', handleNewChat);
       socket.off('messages_marked_read', handleMessagesMarkedRead);
+      socket.off('messages_marked_delivered', handleMessagesMarkedDelivered);
       socket.off('user_typing', handleUserTyping);
       socket.off('user_stopped_typing', handleUserStoppedTyping);
       socket.off('user_status_changed', handleUserStatusChanged);

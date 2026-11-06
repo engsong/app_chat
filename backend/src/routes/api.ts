@@ -11,7 +11,30 @@ import {
   broadcastUserUpdated,
 } from '../sockets/socketHandler.js';
 
+import { VAPID_PUBLIC_KEY } from '../services/pushService.js';
+
 export const apiRouter = Router();
+
+// Web Push VAPID Public Key and Subscription Endpoints
+apiRouter.get('/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
+apiRouter.post('/push/subscribe', (req, res) => {
+  const { userId, subscription } = req.body;
+  if (!userId || !subscription || !subscription.endpoint) {
+    return res.status(400).json({ error: 'Missing userId or subscription endpoint' });
+  }
+
+  const existing = store.pushSubscriptions.get(userId) || [];
+  const filtered = existing.filter((s: any) => s.endpoint !== subscription.endpoint);
+  filtered.push(subscription);
+  store.pushSubscriptions.set(userId, filtered);
+  store.saveToFile();
+
+  console.log(`[Push] User ${userId} registered push subscription (Total: ${filtered.length})`);
+  res.json({ success: true, count: filtered.length });
+});
 
 // ==========================================
 // 1. Authentication & Users
