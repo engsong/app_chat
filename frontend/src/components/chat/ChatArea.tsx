@@ -115,6 +115,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const typingTimeoutRef = useRef<any>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuRef = useRef<HTMLDivElement>(null);
 
   // Toggle selection for a message
@@ -170,27 +171,31 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
       const target = e.target as Node;
+      if (!target) return;
+
+      if (showAttachMenu && attachMenuRef.current && !attachMenuRef.current.contains(target)) {
+        setShowAttachMenu(false);
+      }
+      if (showChatMenu && chatMenuRef.current && !chatMenuRef.current.contains(target)) {
+        setShowChatMenu(false);
+      }
       if (
-        attachMenuRef.current &&
-        !attachMenuRef.current.contains(target) &&
+        showEmojiPicker &&
         emojiPickerRef.current &&
         !emojiPickerRef.current.contains(target) &&
-        chatMenuRef.current &&
-        !chatMenuRef.current.contains(target)
+        (!emojiButtonRef.current || !emojiButtonRef.current.contains(target))
       ) {
-        setShowAttachMenu(false);
         setShowEmojiPicker(false);
-        setShowChatMenu(false);
       }
     };
 
     if (showAttachMenu || showEmojiPicker || showChatMenu) {
-      document.addEventListener('mousedown', handleOutsideClick);
-      document.addEventListener('touchstart', handleOutsideClick);
+      document.addEventListener('mousedown', handleOutsideClick, true);
+      document.addEventListener('touchstart', handleOutsideClick, true);
     }
     return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-      document.removeEventListener('touchstart', handleOutsideClick);
+      document.removeEventListener('mousedown', handleOutsideClick, true);
+      document.removeEventListener('touchstart', handleOutsideClick, true);
     };
   }, [showAttachMenu, showEmojiPicker, showChatMenu]);
 
@@ -1181,6 +1186,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
             {/* Emoji Button (Visible on both Mobile & Desktop) */}
             <button
+              ref={emojiButtonRef}
               type="button"
               onClick={() => {
                 setShowEmojiPicker((prev) => !prev);

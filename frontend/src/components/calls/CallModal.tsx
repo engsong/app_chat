@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Phone, PhoneOff, Video, Mic, MicOff, VideoOff, Monitor, Maximize2 } from 'lucide-react';
 import { IncomingCallInfo } from '../../hooks/useWebRTC.js';
+import { getAvatarUrl } from '../../utils/avatar.js';
 
 interface CallModalProps {
   callActive: boolean;
@@ -73,7 +74,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         <div className="bg-[#202c33] border border-[#2a3942] rounded-2xl p-6 w-96 shadow-2xl flex flex-col items-center text-center animate-scale-up">
           <div className="relative mb-4">
             <img
-              src={incomingCall.callerAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+              src={getAvatarUrl(incomingCall.callerAvatar)}
               alt={incomingCall.callerName}
               className="w-24 h-24 rounded-full object-cover ring-4 ring-[#00a884] ring-offset-4 ring-offset-[#202c33] animate-pulse"
             />
@@ -121,7 +122,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-b from-black/60 to-transparent z-20">
           <div className="flex items-center gap-3">
             <img
-              src={remoteUserAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+              src={getAvatarUrl(remoteUserAvatar)}
               alt={remoteUserName}
               className="w-10 h-10 rounded-full object-cover"
             />
@@ -131,12 +132,6 @@ export const CallModal: React.FC<CallModalProps> = ({
                 {isCalling ? 'Calling...' : `IChat ${isVideoCall ? 'Video' : 'Voice'} • ${formatTime(callDuration)}`}
               </p>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-1 text-xs rounded-full bg-[#202c33]/80 border border-white/10 text-[#00a884] font-medium flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[#00a884] animate-ping" />
-              End-to-End Encrypted
-            </span>
           </div>
         </div>
 
@@ -177,7 +172,7 @@ export const CallModal: React.FC<CallModalProps> = ({
             <div className="flex flex-col items-center text-center p-8">
               <div className="relative mb-6">
                 <img
-                  src={remoteUserAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                  src={getAvatarUrl(remoteUserAvatar)}
                   alt={remoteUserName}
                   className="w-32 h-32 rounded-full object-cover ring-8 ring-[#202c33] shadow-2xl"
                 />
