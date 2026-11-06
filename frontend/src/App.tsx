@@ -14,6 +14,7 @@ import { StatusModal } from './components/status/StatusModal.js';
 import { NewChatModal } from './components/chat/NewChatModal.js';
 import { AdminDashboardModal } from './components/admin/AdminDashboardModal.js';
 import { AuthPage } from './components/auth/AuthPage.js';
+import { WallpaperModal } from './components/chat/WallpaperModal.js';
 import { useWebRTC } from './hooks/useWebRTC.js';
 import { User, Chat, Message, Product, QuickReply, Label, StatusItem } from './types/index.js';
 
@@ -40,6 +41,10 @@ export const App: React.FC = () => {
   const [showNewChat, setShowNewChat] = useState(false);
   const [showCallsHistory, setShowCallsHistory] = useState(false);
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+  const [showWallpaperModal, setShowWallpaperModal] = useState(false);
+  const [customWallpaper, setCustomWallpaper] = useState<string>(
+    () => localStorage.getItem('ichat_chat_wallpaper') || ''
+  );
   const [pendingUsersCount, setPendingUsersCount] = useState(0);
   const [profileModalUser, setProfileModalUser] = useState<User | null>(null);
 
@@ -96,14 +101,17 @@ export const App: React.FC = () => {
         setLabels(labelsRes);
         setStatuses(statusRes);
 
-        // Restore user from localStorage if saved
-        const saved = localStorage.getItem('ichat_user') || localStorage.getItem('whatsapp_user');
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            setCurrentUser(parsed);
-          } catch (e) {
-            // Ignore corrupted storage
+        // Restore user from localStorage only if user hasn't set 'Always require login'
+        const alwaysRequireLogin = localStorage.getItem('ichat_always_require_login') === 'true';
+        if (!alwaysRequireLogin) {
+          const saved = localStorage.getItem('ichat_user') || localStorage.getItem('whatsapp_user');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              setCurrentUser(parsed);
+            } catch (e) {
+              // Ignore corrupted storage
+            }
           }
         }
       } catch (err) {
@@ -306,12 +314,63 @@ export const App: React.FC = () => {
       );
     };
 
+    const handleMessageDeleted = (data: { messageId: string; chatId: string }) => {
+      if (data.chatId === activeChatId) {
+        setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+      }
+      setChats((prev) =>
+        prev.map((c) => {
+          if (c.id === data.chatId && c.lastMessage?.id === data.messageId) {
+            return { ...c, lastMessage: undefined };
+          }
+          return c;
+        })
+      );
+    };
+
+    const handleChatCleared = (data: { chatId: string }) => {
+      if (data.chatId === activeChatId) {
+        setMessages([]);
+      }
+      setChats((prev) =>
+        prev.map((c) => (c.id === data.chatId ? { ...c, lastMessage: undefined, unreadCount: 0 } : c))
+      );
+    };
+
+    const handleChatDeleted = (data: { chatId: string }) => {
+      setChats((prev) => prev.filter((c) => c.id !== data.chatId));
+      if (activeChatId === data.chatId) {
+        setActiveChatId(null);
+        setMessages([]);
+      }
+    };
+
+    const handleUserUpdated = (data: { user: User }) => {
+      setAllUsers((prev) => prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u)));
+      setContacts((prev) => prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u)));
+      setChats((prev) =>
+        prev.map((c) => ({
+          ...c,
+          members: c.members?.map((m) =>
+            m.userId === data.user.id ? { ...m, user: { ...m.user, ...data.user } } : m
+          ),
+        }))
+      );
+      if (currentUserRef.current?.id === data.user.id) {
+        setCurrentUser((prev) => (prev ? { ...prev, ...data.user } : null));
+      }
+    };
+
     socket.on('new_message', handleNewMessage);
     socket.on('new_chat', handleNewChat);
     socket.on('messages_marked_read', handleMessagesMarkedRead);
     socket.on('user_typing', handleUserTyping);
     socket.on('user_stopped_typing', handleUserStoppedTyping);
     socket.on('user_status_changed', handleUserStatusChanged);
+    socket.on('message_deleted', handleMessageDeleted);
+    socket.on('chat_cleared', handleChatCleared);
+    socket.on('chat_deleted', handleChatDeleted);
+    socket.on('user_updated', handleUserUpdated);
 
     return () => {
       socket.off('new_message', handleNewMessage);
@@ -320,6 +379,10 @@ export const App: React.FC = () => {
       socket.off('user_typing', handleUserTyping);
       socket.off('user_stopped_typing', handleUserStoppedTyping);
       socket.off('user_status_changed', handleUserStatusChanged);
+      socket.off('message_deleted', handleMessageDeleted);
+      socket.off('chat_cleared', handleChatCleared);
+      socket.off('chat_deleted', handleChatDeleted);
+      socket.off('user_updated', handleUserUpdated);
     };
   }, [socket, activeChatId, currentUser]);
 
@@ -435,6 +498,53 @@ export const App: React.FC = () => {
     setCurrentUser(null);
     setActiveChatId(null);
     setMessages([]);
+  };
+
+  // Delete individual message
+  const handleDeleteMessage = async (messageId: string) => {
+    try {
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      await fetch(`/api/messages/${messageId}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error('Error deleting message:', err);
+    }
+  };
+
+  // Clear all messages in current chat
+  const handleClearChat = async (targetId?: string) => {
+    const id = targetId || activeChatId;
+    if (!id) return;
+    try {
+      if (id === activeChatId) setMessages([]);
+      setChats((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, lastMessage: undefined, unreadCount: 0 } : c))
+      );
+      await fetch(`/api/chats/${id}/messages`, { method: 'DELETE' });
+    } catch (err) {
+      console.error('Error clearing chat:', err);
+    }
+  };
+
+  // Delete chat conversation
+  const handleDeleteChat = async (targetChatId?: string) => {
+    const id = targetChatId || activeChatId;
+    if (!id) return;
+    try {
+      setChats((prev) => prev.filter((c) => c.id !== id));
+      if (activeChatId === id) {
+        setActiveChatId(null);
+        setMessages([]);
+      }
+      await fetch(`/api/chats/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error('Error deleting chat:', err);
+    }
+  };
+
+  // Select Wallpaper
+  const handleSelectWallpaper = (wallpaper: string) => {
+    setCustomWallpaper(wallpaper);
+    localStorage.setItem('ichat_chat_wallpaper', wallpaper);
   };
 
   // Add Product to Business Catalog
@@ -636,6 +746,7 @@ export const App: React.FC = () => {
         onOpenAdminDashboard={() => setShowAdminDashboard(true)}
         pendingUsersCount={pendingUsersCount}
         onLogout={handleLogout}
+        onDeleteChat={handleDeleteChat}
         selectedLabelId={selectedLabelId}
         onClearLabelFilter={() => setSelectedLabelId(null)}
         labels={labels}
@@ -658,6 +769,11 @@ export const App: React.FC = () => {
           onStartTyping={() => socket?.emit('typing_start', { chatId: activeChat.id, userId: currentUser.id })}
           onStopTyping={() => socket?.emit('typing_stop', { chatId: activeChat.id, userId: currentUser.id })}
           onBack={() => setActiveChatId(null)}
+          onDeleteMessage={handleDeleteMessage}
+          onClearChat={handleClearChat}
+          onDeleteChat={() => handleDeleteChat(activeChat.id)}
+          onOpenWallpaper={() => setShowWallpaperModal(true)}
+          customWallpaper={customWallpaper}
         />
       ) : (
         <div className="hidden md:flex flex-1 flex-col items-center justify-center bg-[#222e35] border-b-[6px] border-[#00a884] p-8 text-center">
@@ -742,6 +858,7 @@ export const App: React.FC = () => {
           user={profileModalUser}
           isCurrentUser={profileModalUser.id === currentUser.id}
           onLogout={handleLogout}
+          onOpenWallpaper={() => setShowWallpaperModal(true)}
           onUpdateProfile={(updated) => {
             setCurrentUser({ ...currentUser, ...updated });
             setAllUsers((prev) =>
@@ -827,6 +944,14 @@ export const App: React.FC = () => {
           }}
         />
       )}
+
+      {/* 13. Chat Wallpaper Customizer Modal */}
+      <WallpaperModal
+        isOpen={showWallpaperModal}
+        onClose={() => setShowWallpaperModal(false)}
+        currentWallpaper={customWallpaper}
+        onSelectWallpaper={handleSelectWallpaper}
+      />
     </div>
   );
 };

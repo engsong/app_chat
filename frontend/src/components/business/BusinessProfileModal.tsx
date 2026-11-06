@@ -1,5 +1,20 @@
-import React, { useState } from 'react';
-import { X, Building2, MapPin, Clock, Globe, ShieldCheck, Mail, Phone, Edit2, Check, Copy, LogOut } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import {
+  X,
+  Building2,
+  MapPin,
+  Clock,
+  Globe,
+  ShieldCheck,
+  Mail,
+  Phone,
+  Edit2,
+  Check,
+  Copy,
+  LogOut,
+  Camera,
+  Image as ImageIcon
+} from 'lucide-react';
 import { User } from '../../types/index.js';
 
 interface BusinessProfileModalProps {
@@ -9,6 +24,7 @@ interface BusinessProfileModalProps {
   isCurrentUser: boolean;
   onUpdateProfile?: (updated: Partial<User>) => void;
   onLogout?: () => void;
+  onOpenWallpaper?: () => void;
 }
 
 export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
@@ -18,9 +34,15 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
   isCurrentUser,
   onUpdateProfile,
   onLogout,
+  onOpenWallpaper,
 }) => {
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
+  const [avatar, setAvatar] = useState(user.avatar || '');
+  const [alwaysRequireLogin, setAlwaysRequireLogin] = useState(
+    localStorage.getItem('ichat_always_require_login') === 'true'
+  );
   const [businessName, setBusinessName] = useState(user.businessName || user.name);
   const [businessCategory, setBusinessCategory] = useState(user.businessCategory || 'Retail & Shopping');
   const [businessDescription, setBusinessDescription] = useState(user.businessDescription || user.about);
@@ -45,6 +67,20 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
     setIsEditing(false);
   };
 
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setAvatar(dataUrl);
+      if (onUpdateProfile) {
+        onUpdateProfile({ avatar: dataUrl });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4">
       <div className="bg-[#202c33] border border-[#2a3942] rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
@@ -60,9 +96,9 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
 
         {/* Avatar & Title */}
         <div className="px-6 -mt-12 flex items-end justify-between mb-4">
-          <div className="relative">
+          <div className="relative group/avatar">
             <img
-              src={user.avatar || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=150'}
+              src={avatar || user.avatar || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=150'}
               alt={user.name}
               className="w-24 h-24 rounded-full object-cover border-4 border-[#202c33] shadow-lg"
             />
@@ -70,6 +106,26 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
               <span className="absolute bottom-1 right-1 p-1 bg-[#00a884] rounded-full text-white ring-2 ring-[#202c33]">
                 <ShieldCheck className="w-4 h-4" />
               </span>
+            )}
+
+            {isCurrentUser && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="absolute bottom-0 right-0 p-2 bg-[#00a884] hover:bg-[#008f6f] rounded-full text-white shadow-lg ring-2 ring-[#202c33] transition-transform active:scale-95"
+                  title="Change Profile Photo"
+                >
+                  <Camera className="w-4 h-4" />
+                </button>
+                <input
+                  type="file"
+                  ref={avatarInputRef}
+                  accept="image/*"
+                  onChange={handleAvatarFileChange}
+                  className="hidden"
+                />
+              </>
             )}
           </div>
 
@@ -216,6 +272,62 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
               )}
             </div>
           </div>
+
+          {/* Security & App Access Settings */}
+          {isCurrentUser && (
+            <div className="bg-[#111b21] p-4 rounded-xl border border-[#2a3942] space-y-3">
+              <div className="flex items-center gap-2 text-white font-semibold text-xs">
+                <ShieldCheck className="w-4 h-4 text-[#00a884]" />
+                <span>Security & App Settings</span>
+              </div>
+
+              {/* Toggle Require Login Every Time */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-white">Require Login Every Time</p>
+                  <p className="text-[11px] text-[#8696a0] mt-0.5">
+                    Always prompt for login when opening IChat.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !alwaysRequireLogin;
+                    setAlwaysRequireLogin(next);
+                    localStorage.setItem('ichat_always_require_login', next ? 'true' : 'false');
+                  }}
+                  className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors flex-shrink-0 ${
+                    alwaysRequireLogin ? 'bg-[#00a884] justify-end' : 'bg-[#2a3942] justify-start'
+                  }`}
+                  title={alwaysRequireLogin ? 'Enabled' : 'Disabled'}
+                >
+                  <div className="w-4 h-4 rounded-full bg-white shadow-md" />
+                </button>
+              </div>
+
+              {/* Wallpaper Shortcut */}
+              {onOpenWallpaper && (
+                <div className="pt-2.5 border-t border-[#2a3942]/60 flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-white">Chat Background Image</p>
+                    <p className="text-[11px] text-[#8696a0] mt-0.5">
+                      Change chat wallpaper and colors.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenWallpaper();
+                    }}
+                    className="px-3 py-1.5 bg-[#202c33] hover:bg-[#2a3942] text-[#00a884] rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 flex-shrink-0"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" /> Change
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Sign Out Button (when viewing current user's profile) */}
           {isCurrentUser && onLogout && (

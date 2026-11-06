@@ -59,6 +59,36 @@ export function broadcastNewChat(chatId: string) {
   });
 }
 
+export function broadcastMessageDeleted(chatId: string, messageId: string) {
+  if (!ioInstance) return;
+  const chat = store.chats.get(chatId);
+  if (!chat) return;
+  chat.memberIds.forEach((mId) => {
+    ioInstance?.to(`user_${mId}`).emit('message_deleted', { messageId, chatId });
+  });
+}
+
+export function broadcastChatCleared(chatId: string) {
+  if (!ioInstance) return;
+  const chat = store.chats.get(chatId);
+  if (!chat) return;
+  chat.memberIds.forEach((mId) => {
+    ioInstance?.to(`user_${mId}`).emit('chat_cleared', { chatId });
+  });
+}
+
+export function broadcastChatDeleted(chatId: string, memberIds: string[]) {
+  if (!ioInstance) return;
+  memberIds.forEach((mId) => {
+    ioInstance?.to(`user_${mId}`).emit('chat_deleted', { chatId });
+  });
+}
+
+export function broadcastUserUpdated(user: any) {
+  if (!ioInstance) return;
+  ioInstance.emit('user_updated', { user });
+}
+
 interface ActiveCallSession {
   callId: string;
   callerId: string;
@@ -207,6 +237,56 @@ export function setupSocketHandlers(io: Server) {
           sockets.forEach((sId) => io.to(sId).emit('messages_marked_read', { chatId, userId }));
         }
       });
+    });
+
+    // Delete a single message
+    socket.on('delete_message', (data: { messageId: string; chatId: string }) => {
+      const { messageId, chatId } = data;
+      store.messages.delete(messageId);
+
+      const chat = store.chats.get(chatId);
+      if (chat) {
+        const remaining = Array.from(store.messages.values())
+          .filter((m) => m.chatId === chatId)
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        chat.lastMessageAt = remaining.length > 0 ? remaining[0].createdAt : chat.createdAt;
+      }
+      store.saveToFile();
+      broadcastMessageDeleted(chatId, messageId);
+    });
+
+    // Clear all messages in a chat
+    socket.on('clear_chat', (data: { chatId: string }) => {
+      const { chatId } = data;
+      for (const [msgId, msg] of store.messages.entries()) {
+        if (msg.chatId === chatId) {
+          store.messages.delete(msgId);
+        }
+      }
+      const chat = store.chats.get(chatId);
+      if (chat) {
+        chat.lastMessageAt = chat.createdAt;
+      }
+      store.saveToFile();
+      broadcastChatCleared(chatId);
+    });
+
+    // Delete an entire chat
+    socket.on('delete_chat', (data: { chatId: string }) => {
+      const { chatId } = data;
+      const chat = store.chats.get(chatId);
+      if (chat) {
+        const memberIds = [...chat.memberIds];
+        for (const [msgId, msg] of store.messages.entries()) {
+          if (msg.chatId === chatId) {
+            store.messages.delete(msgId);
+          }
+        }
+        store.chatLabels.delete(chatId);
+        store.chats.delete(chatId);
+        store.saveToFile();
+        broadcastChatDeleted(chatId, memberIds);
+      }
     });
 
     // ==========================================

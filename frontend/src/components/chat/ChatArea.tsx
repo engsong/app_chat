@@ -22,7 +22,8 @@ import {
   ExternalLink,
   Maximize2,
   PhoneCall,
-  PhoneMissed
+  PhoneMissed,
+  MoreVertical
 } from 'lucide-react';
 import { Chat, Message, User, Product, QuickReply } from '../../types/index.js';
 import { soundEffects } from '../../utils/audioTones.js';
@@ -48,6 +49,11 @@ interface ChatAreaProps {
   onStartTyping: () => void;
   onStopTyping: () => void;
   onBack?: () => void;
+  onDeleteMessage?: (messageId: string) => void;
+  onClearChat?: () => void;
+  onDeleteChat?: () => void;
+  onOpenWallpaper?: () => void;
+  customWallpaper?: string;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -65,10 +71,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onStartTyping,
   onStopTyping,
   onBack,
+  onDeleteMessage,
+  onClearChat,
+  onDeleteChat,
+  onOpenWallpaper,
+  customWallpaper,
 }) => {
   const [inputText, setInputText] = useState('');
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showChatMenu, setShowChatMenu] = useState(false);
   const [showQuickReplyPicker, setShowQuickReplyPicker] = useState(false);
   const [filteredQuickReplies, setFilteredQuickReplies] = useState<QuickReply[]>([]);
   
@@ -92,8 +104,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const typingTimeoutRef = useRef<any>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const chatMenuRef = useRef<HTMLDivElement>(null);
 
-  // Click outside to dismiss attach menu and emoji picker
+  // Click outside to dismiss attach menu, emoji picker, and chat menu
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
       const target = e.target as Node;
@@ -101,14 +114,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         attachMenuRef.current &&
         !attachMenuRef.current.contains(target) &&
         emojiPickerRef.current &&
-        !emojiPickerRef.current.contains(target)
+        !emojiPickerRef.current.contains(target) &&
+        chatMenuRef.current &&
+        !chatMenuRef.current.contains(target)
       ) {
         setShowAttachMenu(false);
         setShowEmojiPicker(false);
+        setShowChatMenu(false);
       }
     };
 
-    if (showAttachMenu || showEmojiPicker) {
+    if (showAttachMenu || showEmojiPicker || showChatMenu) {
       document.addEventListener('mousedown', handleOutsideClick);
       document.addEventListener('touchstart', handleOutsideClick);
     }
@@ -116,7 +132,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       document.removeEventListener('mousedown', handleOutsideClick);
       document.removeEventListener('touchstart', handleOutsideClick);
     };
-  }, [showAttachMenu, showEmojiPicker]);
+  }, [showAttachMenu, showEmojiPicker, showChatMenu]);
 
   // Auto-scroll to latest message safely inside the container (prevents whole window from scrolling)
   useEffect(() => {
@@ -467,13 +483,77 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               <ShoppingBag className="w-5 h-5" />
             </button>
           )}
+
+          {/* Chat Options Menu (Wallpaper, Clear, Delete) */}
+          <div className="relative" ref={chatMenuRef}>
+            <button
+              onClick={() => setShowChatMenu(!showChatMenu)}
+              className="p-2 sm:p-2.5 rounded-full hover:bg-[#374248] text-white hover:text-[#00a884] transition-colors"
+              title="More options"
+              aria-label="More options"
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+
+            {showChatMenu && (
+              <div className="absolute right-0 top-full mt-1.5 w-52 bg-[#233138] rounded-xl shadow-2xl border border-[#2a3942] py-1.5 z-50 text-sm text-[#d1d7db] animate-scale-up">
+                {onOpenWallpaper && (
+                  <button
+                    onClick={() => {
+                      setShowChatMenu(false);
+                      onOpenWallpaper();
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#111b21] hover:text-[#00a884] text-left transition-colors"
+                  >
+                    <ImageIcon className="w-4 h-4 text-[#00a884]" />
+                    <span>Change Wallpaper</span>
+                  </button>
+                )}
+                {onClearChat && (
+                  <button
+                    onClick={() => {
+                      setShowChatMenu(false);
+                      if (window.confirm('Are you sure you want to clear all messages in this chat?')) {
+                        onClearChat();
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#111b21] hover:text-amber-400 text-left transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4 text-amber-400" />
+                    <span>Clear Messages</span>
+                  </button>
+                )}
+                {onDeleteChat && (
+                  <button
+                    onClick={() => {
+                      setShowChatMenu(false);
+                      if (window.confirm('Delete this entire chat conversation? This action cannot be undone.')) {
+                        onDeleteChat();
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#111b21] hover:text-red-400 text-left transition-colors border-t border-[#2a3942]/50 text-red-400"
+                  >
+                    <Trash2 className="w-4 h-4 text-red-400" />
+                    <span>Delete Conversation</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* 2. Messages List Body */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-2.5 whatsapp-chat-bg overscroll-contain"
+        style={
+          customWallpaper
+            ? customWallpaper.startsWith('#')
+              ? { backgroundColor: customWallpaper, backgroundImage: 'none' }
+              : { backgroundImage: `url(${customWallpaper})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }
+            : undefined
+        }
+        className={`flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-2.5 ${!customWallpaper ? 'whatsapp-chat-bg' : ''} overscroll-contain`}
       >
         {/* Encryption Security Badge */}
         <div className="flex justify-center mb-3">
@@ -739,8 +819,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   })()
                 )}
 
-                {/* Timestamp & Status Checkmarks */}
-                <div className="flex items-center justify-end gap-1 mt-1 text-[10px] text-white/60">
+                {/* Timestamp, Delete Button & Status Checkmarks */}
+                <div className="flex items-center justify-end gap-1.5 mt-1 text-[10px] text-white/60">
+                  {onDeleteMessage && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm('Delete this message?')) {
+                          onDeleteMessage(msg.id);
+                        }
+                      }}
+                      className="opacity-40 hover:opacity-100 hover:text-red-400 p-0.5 rounded transition-all"
+                      title="Delete message"
+                      aria-label="Delete message"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
                   <span>{time}</span>
                   {isMe && (
                     <span>

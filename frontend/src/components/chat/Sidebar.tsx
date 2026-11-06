@@ -10,8 +10,8 @@ import {
   Check,
   CheckCheck,
   X,
-  LogOut,
-  PhoneCall
+  PhoneCall,
+  Trash2
 } from 'lucide-react';
 import { Chat, User, Label } from '../../types/index.js';
 
@@ -29,6 +29,7 @@ interface SidebarProps {
   onOpenAdminDashboard?: () => void;
   pendingUsersCount?: number;
   onLogout: () => void;
+  onDeleteChat?: (chatId: string) => void;
   selectedLabelId: string | null;
   onClearLabelFilter: () => void;
   labels: Label[];
@@ -48,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenAdminDashboard,
   pendingUsersCount,
   onLogout,
+  onDeleteChat,
   selectedLabelId,
   onClearLabelFilter,
   labels,
@@ -181,15 +183,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </button>
           )}
-
-          {/* Sign Out */}
-          <button
-            onClick={onLogout}
-            className="p-2 rounded-full hover:bg-[#374248] hover:text-red-400 transition-colors"
-            title="Sign Out"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
         </div>
       </div>
 
@@ -240,7 +233,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div
               key={chat.id}
               onClick={() => onSelectChat(chat.id)}
-              className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${
+              className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors group ${
                 isSelected ? 'bg-[#2a3942]' : 'hover:bg-[#202c33]'
               }`}
             >
@@ -310,6 +303,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {chat.unreadCount}
                       </span>
                     ) : null}
+
+                    {/* Delete chat button */}
+                    {onDeleteChat && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Delete chat with "${title}"? This cannot be undone.`)) {
+                            onDeleteChat(chat.id);
+                          }
+                        }}
+                        className="opacity-70 sm:opacity-0 group-hover:opacity-100 p-1 rounded-full hover:bg-rose-500/20 text-[#8696a0] hover:text-rose-400 transition-all ml-0.5"
+                        title="Delete chat"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

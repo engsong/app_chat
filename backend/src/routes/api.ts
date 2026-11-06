@@ -2,7 +2,14 @@ import { Router } from 'express';
 import { store, isPhoneMatch, normalizePhone } from '../store.js';
 import { UserData, ChatData } from '../types.js';
 import { v4 as uuidv4 } from 'uuid';
-import { broadcastNewChat, getEnrichedChat } from '../sockets/socketHandler.js';
+import {
+  broadcastNewChat,
+  getEnrichedChat,
+  broadcastMessageDeleted,
+  broadcastChatCleared,
+  broadcastChatDeleted,
+  broadcastUserUpdated,
+} from '../sockets/socketHandler.js';
 
 export const apiRouter = Router();
 
@@ -211,6 +218,7 @@ apiRouter.put('/users/:id', (req, res) => {
   if (businessWebsite !== undefined) user.businessWebsite = businessWebsite;
   user.updatedAt = new Date();
   store.saveToFile();
+  broadcastUserUpdated(user);
 
   res.json({ success: true, user });
 });
@@ -847,4 +855,76 @@ apiRouter.get('/calls', (req, res) => {
   });
   enriched.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
   res.json(enriched);
+});
+
+// ==========================================
+// 10. Chat & Message Deletion
+// ==========================================
+// Delete a single message
+apiRouter.delete('/messages/:id', (req, res) => {
+  const messageId = req.params.id;
+  const message = store.messages.get(messageId);
+  if (!message) {
+    return res.status(404).json({ error: 'Message not found' });
+  }
+
+  const chatId = message.chatId;
+  store.messages.delete(messageId);
+
+  const chat = store.chats.get(chatId);
+  if (chat) {
+    const remaining = Array.from(store.messages.values())
+      .filter((m) => m.chatId === chatId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    chat.lastMessageAt = remaining.length > 0 ? remaining[0].createdAt : chat.createdAt;
+  }
+
+  store.saveToFile();
+  broadcastMessageDeleted(chatId, messageId);
+
+  res.json({ success: true, messageId, chatId });
+});
+
+// Clear all messages in a chat
+apiRouter.delete('/chats/:id/messages', (req, res) => {
+  const chatId = req.params.id;
+  const chat = store.chats.get(chatId);
+  if (!chat) {
+    return res.status(404).json({ error: 'Chat not found' });
+  }
+
+  for (const [msgId, msg] of store.messages.entries()) {
+    if (msg.chatId === chatId) {
+      store.messages.delete(msgId);
+    }
+  }
+
+  chat.lastMessageAt = chat.createdAt;
+  store.saveToFile();
+  broadcastChatCleared(chatId);
+
+  res.json({ success: true, chatId });
+});
+
+// Delete an entire chat conversation
+apiRouter.delete('/chats/:id', (req, res) => {
+  const chatId = req.params.id;
+  const chat = store.chats.get(chatId);
+  if (!chat) {
+    return res.status(404).json({ error: 'Chat not found' });
+  }
+
+  const memberIds = [...chat.memberIds];
+  for (const [msgId, msg] of store.messages.entries()) {
+    if (msg.chatId === chatId) {
+      store.messages.delete(msgId);
+    }
+  }
+  store.chatLabels.delete(chatId);
+  store.chats.delete(chatId);
+  store.saveToFile();
+
+  broadcastChatDeleted(chatId, memberIds);
+
+  res.json({ success: true, chatId });
 });
