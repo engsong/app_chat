@@ -1,0 +1,14 @@
+{
+  "appId": "app.onexcapp.ichat",
+  "appName": "IChat",
+  "webDir": "dist",
+  "server": {
+    "url": "https://chat.on-excapp.app",
+    "cleartext": true,
+    "allowNavigation": ["chat.on-excapp.app", "*.on-excapp.app"]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": true
+  }
+}

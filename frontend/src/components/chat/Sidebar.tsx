@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   Bell,
   BellOff,
+  Download,
 } from 'lucide-react';
 import { Chat, User, Label } from '../../types/index.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
@@ -254,22 +255,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 alt={currentUser.name}
                 className="w-10 h-10 rounded-full object-cover ring-2 ring-transparent group-hover:ring-[#00a884] transition-all"
               />
-              {currentUser.isBusiness && (
-                <span className="absolute -bottom-0.5 -right-0.5 p-0.5 bg-[#00a884] rounded-full text-white">
-                  <ShieldCheck className="w-3 h-3" />
-                </span>
-              )}
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-white group-hover:text-[#00a884] transition-colors max-w-[110px] truncate">
+                <span className="text-sm font-semibold text-white group-hover:text-[#00a884] transition-colors max-w-[130px] truncate">
                   {currentUser.name}
                 </span>
                 <img src="/logo.png" alt="IChat" className="w-4 h-4 object-contain inline-block" title="IChat" />
               </div>
-              <span className="text-[10px] text-[#00a884] font-medium block">
-                {currentUser.isBusiness ? 'Business Profile' : 'Personal Account'}
-              </span>
             </div>
           </div>
 
@@ -331,6 +324,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <PhoneCall className="w-5 h-5" />
             </button>
+
+            {/* Download Android APK App */}
+            <a
+              href="/download/ichat.apk"
+              download="ichat.apk"
+              className="p-2 rounded-full hover:bg-[#374248] text-[#aebac1] hover:text-[#00a884] transition-colors"
+              title="Download Android App (.APK)"
+            >
+              <Download className="w-5 h-5" />
+            </a>
 
             {/* New Chat / New Group */}
             <button

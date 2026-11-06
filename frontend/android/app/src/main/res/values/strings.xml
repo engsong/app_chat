@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">IChat</string>
+    <string name="title_activity_main">IChat</string>
+    <string name="package_name">app.onexcapp.ichat</string>
+    <string name="custom_url_scheme">app.onexcapp.ichat</string>
+</resources>
