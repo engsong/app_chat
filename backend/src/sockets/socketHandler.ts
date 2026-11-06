@@ -3,7 +3,7 @@ import { store } from '../store.js';
 import { v4 as uuidv4 } from 'uuid';
 import { CallData, MessageData } from '../types.js';
 
-export function getEnrichedChat(chatId: string) {
+export function getEnrichedChat(chatId: string, forUserId?: string) {
   const chat = store.chats.get(chatId);
   if (!chat) return null;
 
@@ -18,7 +18,7 @@ export function getEnrichedChat(chatId: string) {
         id: mId,
         phone: '',
         name: 'User',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+        avatar: '',
         about: 'Hey there! I am using IChat.',
         isBusiness: false,
         isOnline: false,
@@ -30,7 +30,7 @@ export function getEnrichedChat(chatId: string) {
   });
 
   const chatMessages = Array.from(store.messages.values())
-    .filter((m) => m.chatId === chat.id)
+    .filter((m) => m.chatId === chat.id && !m.isDeletedForEveryone && (!forUserId || !m.deletedForUserIds?.includes(forUserId)))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
   const lastMessage = chatMessages[0];
@@ -59,29 +59,41 @@ export function broadcastNewChat(chatId: string) {
   });
 }
 
-export function broadcastMessageDeleted(chatId: string, messageId: string) {
+export function broadcastMessageDeleted(chatId: string, messageId: string, forUserId?: string) {
   if (!ioInstance) return;
   const chat = store.chats.get(chatId);
   if (!chat) return;
-  chat.memberIds.forEach((mId) => {
-    ioInstance?.to(`user_${mId}`).emit('message_deleted', { messageId, chatId });
-  });
+  if (forUserId) {
+    ioInstance.to(`user_${forUserId}`).emit('message_deleted', { messageId, chatId, forUserId });
+  } else {
+    chat.memberIds.forEach((mId) => {
+      ioInstance?.to(`user_${mId}`).emit('message_deleted', { messageId, chatId });
+    });
+  }
 }
 
-export function broadcastChatCleared(chatId: string) {
+export function broadcastChatCleared(chatId: string, forUserId?: string) {
   if (!ioInstance) return;
   const chat = store.chats.get(chatId);
   if (!chat) return;
-  chat.memberIds.forEach((mId) => {
-    ioInstance?.to(`user_${mId}`).emit('chat_cleared', { chatId });
-  });
+  if (forUserId) {
+    ioInstance.to(`user_${forUserId}`).emit('chat_cleared', { chatId, forUserId });
+  } else {
+    chat.memberIds.forEach((mId) => {
+      ioInstance?.to(`user_${mId}`).emit('chat_cleared', { chatId });
+    });
+  }
 }
 
-export function broadcastChatDeleted(chatId: string, memberIds: string[]) {
+export function broadcastChatDeleted(chatId: string, memberIds: string[], forUserId?: string) {
   if (!ioInstance) return;
-  memberIds.forEach((mId) => {
-    ioInstance?.to(`user_${mId}`).emit('chat_deleted', { chatId });
-  });
+  if (forUserId) {
+    ioInstance.to(`user_${forUserId}`).emit('chat_deleted', { chatId, forUserId });
+  } else {
+    memberIds.forEach((mId) => {
+      ioInstance?.to(`user_${mId}`).emit('chat_deleted', { chatId });
+    });
+  }
 }
 
 export function broadcastUserUpdated(user: any) {
@@ -169,6 +181,9 @@ export function setupSocketHandlers(io: Server) {
 
       store.messages.set(newMessage.id, newMessage);
       chat.lastMessageAt = new Date();
+      if (chat.hiddenForUserIds && chat.hiddenForUserIds.length > 0) {
+        chat.hiddenForUserIds = [];
+      }
       store.saveToFile();
 
       const enrichedChat = getEnrichedChat(chatId) || chat;

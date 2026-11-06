@@ -30,6 +30,7 @@ import {
 import { Chat, Message, User, Product, QuickReply } from '../../types/index.js';
 import { soundEffects } from '../../utils/audioTones.js';
 import { EmojiPicker } from './EmojiPicker.js';
+import { getAvatarUrl } from '../../utils/avatar.js';
 
 interface ChatAreaProps {
   chat: Chat;
@@ -51,8 +52,8 @@ interface ChatAreaProps {
   onStartTyping: () => void;
   onStopTyping: () => void;
   onBack?: () => void;
-  onDeleteMessage?: (messageId: string) => void;
-  onDeleteMessages?: (messageIds: string[]) => void;
+  onDeleteMessage?: (messageId: string, mode?: 'for_me' | 'for_everyone') => void;
+  onDeleteMessages?: (messageIds: string[], mode?: 'for_me' | 'for_everyone') => void;
   onClearChat?: () => void;
   onDeleteChat?: () => void;
   onOpenWallpaper?: () => void;
@@ -154,12 +155,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
-  const handleConfirmDeleteSelected = () => {
+  const handleConfirmDeleteSelected = (mode: 'for_me' | 'for_everyone' = 'for_me') => {
     if (selectedMessageIds.length === 0) return;
     if (onDeleteMessages) {
-      onDeleteMessages(selectedMessageIds);
+      onDeleteMessages(selectedMessageIds, mode);
     } else if (onDeleteMessage) {
-      selectedMessageIds.forEach((id) => onDeleteMessage(id));
+      selectedMessageIds.forEach((id) => onDeleteMessage(id, mode));
     }
     setSelectedMessageIds([]);
     setShowDeleteConfirmModal(false);
@@ -217,8 +218,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const otherMember = chat.members?.find((m) => m.userId !== currentUser.id)?.user;
   const title = isGroup ? chat.name : (otherMember?.businessName || otherMember?.name || 'User');
   const avatar = isGroup
-    ? (chat.avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150')
-    : (otherMember?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150');
+    ? getAvatarUrl(chat.avatar)
+    : getAvatarUrl(otherMember?.avatar);
 
   // Typing event handler
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1285,13 +1286,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             </p>
             <div className="flex flex-col gap-2">
               <button
-                onClick={handleConfirmDeleteSelected}
+                onClick={() => handleConfirmDeleteSelected('for_everyone')}
                 className="w-full py-2.5 px-4 rounded-xl bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white font-medium text-xs transition-colors text-center"
               >
                 Delete for everyone
               </button>
               <button
-                onClick={handleConfirmDeleteSelected}
+                onClick={() => handleConfirmDeleteSelected('for_me')}
                 className="w-full py-2.5 px-4 rounded-xl bg-[#202c33] hover:bg-[#374248] text-[#00a884] font-medium text-xs transition-colors text-center"
               >
                 Delete for me

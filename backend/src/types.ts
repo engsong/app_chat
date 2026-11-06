@@ -31,6 +31,10 @@ export interface MessageData {
   metadata?: string;
   status: 'sent' | 'delivered' | 'read';
   createdAt: Date;
+  deletedForUserIds?: string[];
+  isDeletedForEveryone?: boolean;
+  deletedBy?: string;
+  deletedAt?: Date;
 }
 
 export interface ChatData {
@@ -43,6 +47,7 @@ export interface ChatData {
   updatedAt: Date;
   lastMessageAt: Date;
   memberIds: string[];
+  hiddenForUserIds?: string[];
 }
 
 export interface CallData {

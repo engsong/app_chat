@@ -108,7 +108,14 @@ export const App: React.FC = () => {
           if (saved) {
             try {
               const parsed = JSON.parse(saved);
-              setCurrentUser(parsed);
+              const freshUser = usersRes?.find((u: any) => u.id === parsed.id);
+              if (freshUser) {
+                const merged = { ...parsed, ...freshUser };
+                setCurrentUser(merged);
+                localStorage.setItem('ichat_user', JSON.stringify(merged));
+              } else {
+                setCurrentUser(parsed);
+              }
             } catch (e) {
               // Ignore corrupted storage
             }
@@ -178,11 +185,11 @@ export const App: React.FC = () => {
 
   // 4. Load messages for active chat
   useEffect(() => {
-    if (!activeChatId) return;
+    if (!activeChatId || !currentUser) return;
 
     const loadMessages = async () => {
       try {
-        const res = await fetch(`/api/chats/${activeChatId}/messages`);
+        const res = await fetch(`/api/chats/${activeChatId}/messages?userId=${currentUser.id}`);
         const msgs = await res.json();
         setMessages(msgs);
 
@@ -317,7 +324,8 @@ export const App: React.FC = () => {
       );
     };
 
-    const handleMessageDeleted = (data: { messageId: string; chatId: string }) => {
+    const handleMessageDeleted = (data: { messageId: string; chatId: string; forUserId?: string }) => {
+      if (data.forUserId && data.forUserId !== currentUser.id) return;
       if (data.chatId === activeChatId) {
         setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
       }
@@ -331,7 +339,8 @@ export const App: React.FC = () => {
       );
     };
 
-    const handleChatCleared = (data: { chatId: string }) => {
+    const handleChatCleared = (data: { chatId: string; forUserId?: string }) => {
+      if (data.forUserId && data.forUserId !== currentUser.id) return;
       if (data.chatId === activeChatId) {
         setMessages([]);
       }
@@ -340,7 +349,8 @@ export const App: React.FC = () => {
       );
     };
 
-    const handleChatDeleted = (data: { chatId: string }) => {
+    const handleChatDeleted = (data: { chatId: string; forUserId?: string }) => {
+      if (data.forUserId && data.forUserId !== currentUser.id) return;
       setChats((prev) => prev.filter((c) => c.id !== data.chatId));
       if (activeChatId === data.chatId) {
         setActiveChatId(null);
@@ -360,7 +370,13 @@ export const App: React.FC = () => {
         }))
       );
       if (currentUserRef.current?.id === data.user.id) {
-        setCurrentUser((prev) => (prev ? { ...prev, ...data.user } : null));
+        setCurrentUser((prev) => {
+          const merged = prev ? { ...prev, ...data.user } : null;
+          if (merged) {
+            localStorage.setItem('ichat_user', JSON.stringify(merged));
+          }
+          return merged;
+        });
       }
     };
 
@@ -404,7 +420,7 @@ export const App: React.FC = () => {
         }
 
         if (activeChatId) {
-          const mRes = await fetch(`/api/chats/${activeChatId}/messages`);
+          const mRes = await fetch(`/api/chats/${activeChatId}/messages?userId=${currentUser.id}`);
           if (mRes.ok) {
             const freshMsgs: Message[] = await mRes.json();
             setMessages(freshMsgs);
@@ -504,23 +520,32 @@ export const App: React.FC = () => {
   };
 
   // Delete individual message
-  const handleDeleteMessage = async (messageId: string) => {
+  const handleDeleteMessage = async (messageId: string, mode: 'for_me' | 'for_everyone' = 'for_me') => {
+    if (!currentUser) return;
     try {
       setMessages((prev) => prev.filter((m) => m.id !== messageId));
-      await fetch(`/api/messages/${messageId}`, { method: 'DELETE' });
+      await fetch(`/api/messages/${messageId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id, mode }),
+      });
     } catch (err) {
       console.error('Error deleting message:', err);
     }
   };
 
   // Delete multiple messages (WhatsApp select & delete)
-  const handleDeleteMessages = async (messageIds: string[]) => {
-    if (!messageIds || messageIds.length === 0) return;
+  const handleDeleteMessages = async (messageIds: string[], mode: 'for_me' | 'for_everyone' = 'for_me') => {
+    if (!messageIds || messageIds.length === 0 || !currentUser) return;
     try {
       setMessages((prev) => prev.filter((m) => !messageIds.includes(m.id)));
       await Promise.all(
         messageIds.map((id) =>
-          fetch(`/api/messages/${id}`, { method: 'DELETE' }).catch(() => {})
+          fetch(`/api/messages/${id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUser.id, mode }),
+          }).catch(() => {})
         )
       );
     } catch (err) {
@@ -531,13 +556,17 @@ export const App: React.FC = () => {
   // Clear all messages in current chat
   const handleClearChat = async (targetId?: string) => {
     const id = targetId || activeChatId;
-    if (!id) return;
+    if (!id || !currentUser) return;
     try {
       if (id === activeChatId) setMessages([]);
       setChats((prev) =>
         prev.map((c) => (c.id === id ? { ...c, lastMessage: undefined, unreadCount: 0 } : c))
       );
-      await fetch(`/api/chats/${id}/messages`, { method: 'DELETE' });
+      await fetch(`/api/chats/${id}/messages`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id }),
+      });
     } catch (err) {
       console.error('Error clearing chat:', err);
     }
@@ -546,14 +575,18 @@ export const App: React.FC = () => {
   // Delete chat conversation
   const handleDeleteChat = async (targetChatId?: string) => {
     const id = targetChatId || activeChatId;
-    if (!id) return;
+    if (!id || !currentUser) return;
     try {
       setChats((prev) => prev.filter((c) => c.id !== id));
       if (activeChatId === id) {
         setActiveChatId(null);
         setMessages([]);
       }
-      await fetch(`/api/chats/${id}`, { method: 'DELETE' });
+      await fetch(`/api/chats/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id }),
+      });
     } catch (err) {
       console.error('Error deleting chat:', err);
     }
@@ -561,7 +594,7 @@ export const App: React.FC = () => {
 
   // Delete multiple chats (WhatsApp select & delete)
   const handleDeleteChats = async (chatIds: string[]) => {
-    if (!chatIds || chatIds.length === 0) return;
+    if (!chatIds || chatIds.length === 0 || !currentUser) return;
     try {
       setChats((prev) => prev.filter((c) => !chatIds.includes(c.id)));
       if (activeChatId && chatIds.includes(activeChatId)) {
@@ -570,7 +603,11 @@ export const App: React.FC = () => {
       }
       await Promise.all(
         chatIds.map((id) =>
-          fetch(`/api/chats/${id}`, { method: 'DELETE' }).catch(() => {})
+          fetch(`/api/chats/${id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUser.id }),
+          }).catch(() => {})
         )
       );
     } catch (err) {
@@ -899,7 +936,9 @@ export const App: React.FC = () => {
           onLogout={handleLogout}
           onOpenWallpaper={() => setShowWallpaperModal(true)}
           onUpdateProfile={(updated) => {
-            setCurrentUser({ ...currentUser, ...updated });
+            const merged = { ...currentUser, ...updated };
+            setCurrentUser(merged);
+            localStorage.setItem('ichat_user', JSON.stringify(merged));
             setAllUsers((prev) =>
               prev.map((u) => (u.id === currentUser.id ? { ...u, ...updated } : u))
             );

@@ -16,6 +16,7 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import { User } from '../../types/index.js';
+import { getAvatarUrl } from '../../utils/avatar.js';
 
 interface BusinessProfileModalProps {
   isOpen: boolean;
@@ -40,6 +41,10 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
   const [avatar, setAvatar] = useState(user.avatar || '');
+
+  React.useEffect(() => {
+    setAvatar(user.avatar || '');
+  }, [user.avatar]);
   const [alwaysRequireLogin, setAlwaysRequireLogin] = useState(
     localStorage.getItem('ichat_always_require_login') === 'true'
   );
@@ -98,7 +103,7 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
         <div className="px-6 -mt-12 flex items-end justify-between mb-4">
           <div className="relative group/avatar">
             <img
-              src={avatar || user.avatar || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=150'}
+              src={getAvatarUrl(avatar || user.avatar)}
               alt={user.name}
               className="w-24 h-24 rounded-full object-cover border-4 border-[#202c33] shadow-lg"
             />

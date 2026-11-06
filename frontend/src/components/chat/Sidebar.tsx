@@ -15,6 +15,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { Chat, User, Label } from '../../types/index.js';
+import { getAvatarUrl } from '../../utils/avatar.js';
 
 interface SidebarProps {
   chats: Chat[];
@@ -177,7 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <div className="relative">
               <img
-                src={currentUser.avatar || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=150'}
+                src={getAvatarUrl(currentUser.avatar)}
                 alt={currentUser.name}
                 className="w-10 h-10 rounded-full object-cover ring-2 ring-transparent group-hover:ring-[#00a884] transition-all"
               />
@@ -304,8 +305,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const otherMember = chat.members?.find((m) => m.userId !== currentUser.id)?.user;
           const title = isGroup ? chat.name : (otherMember?.businessName || otherMember?.name || 'Chat');
           const avatar = isGroup
-            ? (chat.avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150')
-            : (otherMember?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150');
+            ? getAvatarUrl(chat.avatar)
+            : getAvatarUrl(otherMember?.avatar);
           const isBusiness = !isGroup && otherMember?.isBusiness;
 
           const lastMsg = chat.lastMessage;

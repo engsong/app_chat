@@ -39,13 +39,7 @@ apiRouter.post('/auth/register', (req, res) => {
     return res.status(400).json({ error: 'Name, phone number, and password are required.' });
   }
 
-  const defaultAvatars = [
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-    'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-    'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=150',
-  ];
-  const chosenAvatar = avatar || defaultAvatars[Math.floor(Math.random() * defaultAvatars.length)];
+  const chosenAvatar = avatar || '';
 
   // Determine if this user should be admin or auto-approved
   const isAdminPhone = isPhoneMatch(phone, '02054245616') || phone.toLowerCase().trim() === 'admin';
@@ -284,7 +278,7 @@ apiRouter.post('/contacts', (req, res) => {
         phone: formattedPhone,
         name: formattedPhone,
         about: 'Hey there! I am using IChat.',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+        avatar: '',
         isBusiness: false,
         isOnline: false,
         lastSeen: new Date(),
@@ -298,7 +292,7 @@ apiRouter.post('/contacts', (req, res) => {
         phone: `+${Math.floor(1000000000 + Math.random() * 9000000000)}`,
         name: `User ${cleanQuery.slice(4, 12)}`,
         about: 'Hey there! I am using IChat.',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+        avatar: '',
         isBusiness: false,
         isOnline: false,
         lastSeen: new Date(),
@@ -312,7 +306,7 @@ apiRouter.post('/contacts', (req, res) => {
         phone: `+${Math.floor(1000000000 + Math.random() * 9000000000)}`,
         name: query.trim(),
         about: 'Hey there! I am using IChat.',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
+        avatar: '',
         isBusiness: false,
         isOnline: false,
         lastSeen: new Date(),
@@ -389,13 +383,14 @@ apiRouter.get('/chats', (req, res) => {
 
   const userChats = Array.from(store.chats.values())
     .filter((chat) => chat.memberIds.includes(userId))
+    .filter((chat) => !chat.hiddenForUserIds || !chat.hiddenForUserIds.includes(userId))
     .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
     .map((chat) => {
-      const enriched = getEnrichedChat(chat.id);
+      const enriched = getEnrichedChat(chat.id, userId);
       if (enriched) {
         // Calculate unread count specifically for requesting user
         const chatMessages = Array.from(store.messages.values())
-          .filter((m) => m.chatId === chat.id);
+          .filter((m) => m.chatId === chat.id && !m.isDeletedForEveryone && (!m.deletedForUserIds || !m.deletedForUserIds.includes(userId)));
         const unreadCount = chatMessages.filter(
           (m) => m.senderId !== userId && m.status !== 'read'
         ).length;
@@ -440,7 +435,7 @@ apiRouter.post('/chats/direct', (req, res) => {
     broadcastNewChat(chat.id);
   }
 
-  const enriched = getEnrichedChat(chat.id) || chat;
+  const enriched = getEnrichedChat(chat.id, currentUserId) || chat;
   res.json(enriched);
 });
 
@@ -458,7 +453,7 @@ apiRouter.post('/chats/group', (req, res) => {
     isGroup: true,
     name,
     description: description || '',
-    avatar: avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150',
+    avatar: avatar || '',
     memberIds: allMembers,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -481,15 +476,18 @@ apiRouter.post('/chats/group', (req, res) => {
   store.saveToFile();
 
   broadcastNewChat(newGroup.id);
-  const enriched = getEnrichedChat(newGroup.id) || newGroup;
+  const enriched = getEnrichedChat(newGroup.id, creatorId) || newGroup;
   res.json(enriched);
 });
 
 // Get Messages for a Chat
 apiRouter.get('/chats/:id/messages', (req, res) => {
   const chatId = req.params.id;
+  const userId = req.query.userId as string;
   const messages = Array.from(store.messages.values())
     .filter((m) => m.chatId === chatId)
+    .filter((m) => !m.isDeletedForEveryone)
+    .filter((m) => !userId || !m.deletedForUserIds || !m.deletedForUserIds.includes(userId))
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
     .map((m) => {
       const sender = store.users.get(m.senderId);
@@ -818,7 +816,7 @@ apiRouter.get('/admin/chats', verifyAdmin, (req, res) => {
   res.json(chats);
 });
 
-// 8. Admin Chat Monitoring: Inspect and view all messages of ANY chat
+// 8. Admin Chat Monitoring: Inspect and view all messages of ANY chat (including user-deleted)
 apiRouter.get('/admin/chats/:id/messages', verifyAdmin, (req, res) => {
   const chatId = req.params.id;
   const messages = Array.from(store.messages.values())
@@ -829,6 +827,9 @@ apiRouter.get('/admin/chats/:id/messages', verifyAdmin, (req, res) => {
       return {
         ...m,
         sender: sender ? { id: sender.id, name: sender.name, phone: sender.phone, avatar: sender.avatar } : undefined,
+        wasDeletedForUsers: Boolean(m.deletedForUserIds && m.deletedForUserIds.length > 0),
+        wasDeletedForEveryone: Boolean(m.isDeletedForEveryone),
+        deletedForUserIds: m.deletedForUserIds || [],
       };
     });
 
@@ -858,7 +859,7 @@ apiRouter.get('/calls', (req, res) => {
 });
 
 // ==========================================
-// 10. Chat & Message Deletion
+// 10. Chat & Message Deletion (Soft Deletion: Admin never loses data)
 // ==========================================
 // Delete a single message
 apiRouter.delete('/messages/:id', (req, res) => {
@@ -868,24 +869,40 @@ apiRouter.delete('/messages/:id', (req, res) => {
     return res.status(404).json({ error: 'Message not found' });
   }
 
+  const { userId, mode } = req.body || {};
+  const queryUserId = req.query.userId as string;
+  const effectiveUserId = userId || queryUserId;
+  const effectiveMode = mode || (req.query.mode as string) || (effectiveUserId ? 'for_me' : 'for_everyone');
   const chatId = message.chatId;
-  store.messages.delete(messageId);
 
-  const chat = store.chats.get(chatId);
-  if (chat) {
-    const remaining = Array.from(store.messages.values())
-      .filter((m) => m.chatId === chatId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    chat.lastMessageAt = remaining.length > 0 ? remaining[0].createdAt : chat.createdAt;
+  if (effectiveMode === 'for_everyone') {
+    message.isDeletedForEveryone = true;
+    message.deletedBy = effectiveUserId;
+    message.deletedAt = new Date();
+    store.saveToFile();
+    broadcastMessageDeleted(chatId, messageId);
+  } else {
+    // Delete for me only
+    if (effectiveUserId) {
+      if (!message.deletedForUserIds) message.deletedForUserIds = [];
+      if (!message.deletedForUserIds.includes(effectiveUserId)) {
+        message.deletedForUserIds.push(effectiveUserId);
+      }
+      message.deletedAt = new Date();
+      store.saveToFile();
+      broadcastMessageDeleted(chatId, messageId, effectiveUserId);
+    } else {
+      message.isDeletedForEveryone = true;
+      message.deletedAt = new Date();
+      store.saveToFile();
+      broadcastMessageDeleted(chatId, messageId);
+    }
   }
 
-  store.saveToFile();
-  broadcastMessageDeleted(chatId, messageId);
-
-  res.json({ success: true, messageId, chatId });
+  res.json({ success: true, messageId, chatId, mode: effectiveMode });
 });
 
-// Clear all messages in a chat
+// Clear all messages in a chat (for a user or globally)
 apiRouter.delete('/chats/:id/messages', (req, res) => {
   const chatId = req.params.id;
   const chat = store.chats.get(chatId);
@@ -893,20 +910,34 @@ apiRouter.delete('/chats/:id/messages', (req, res) => {
     return res.status(404).json({ error: 'Chat not found' });
   }
 
-  for (const [msgId, msg] of store.messages.entries()) {
-    if (msg.chatId === chatId) {
-      store.messages.delete(msgId);
-    }
-  }
+  const { userId } = req.body || {};
+  const effectiveUserId = userId || (req.query.userId as string);
 
-  chat.lastMessageAt = chat.createdAt;
-  store.saveToFile();
-  broadcastChatCleared(chatId);
+  if (effectiveUserId) {
+    for (const [_, msg] of store.messages.entries()) {
+      if (msg.chatId === chatId) {
+        if (!msg.deletedForUserIds) msg.deletedForUserIds = [];
+        if (!msg.deletedForUserIds.includes(effectiveUserId)) {
+          msg.deletedForUserIds.push(effectiveUserId);
+        }
+      }
+    }
+    store.saveToFile();
+    broadcastChatCleared(chatId, effectiveUserId);
+  } else {
+    for (const [_, msg] of store.messages.entries()) {
+      if (msg.chatId === chatId) {
+        msg.isDeletedForEveryone = true;
+      }
+    }
+    store.saveToFile();
+    broadcastChatCleared(chatId);
+  }
 
   res.json({ success: true, chatId });
 });
 
-// Delete an entire chat conversation
+// Delete an entire chat conversation (soft hide for user so other user & admin keep it)
 apiRouter.delete('/chats/:id', (req, res) => {
   const chatId = req.params.id;
   const chat = store.chats.get(chatId);
@@ -914,17 +945,34 @@ apiRouter.delete('/chats/:id', (req, res) => {
     return res.status(404).json({ error: 'Chat not found' });
   }
 
+  const { userId } = req.body || {};
+  const effectiveUserId = userId || (req.query.userId as string);
   const memberIds = [...chat.memberIds];
-  for (const [msgId, msg] of store.messages.entries()) {
-    if (msg.chatId === chatId) {
-      store.messages.delete(msgId);
-    }
-  }
-  store.chatLabels.delete(chatId);
-  store.chats.delete(chatId);
-  store.saveToFile();
 
-  broadcastChatDeleted(chatId, memberIds);
+  if (effectiveUserId) {
+    if (!chat.hiddenForUserIds) chat.hiddenForUserIds = [];
+    if (!chat.hiddenForUserIds.includes(effectiveUserId)) {
+      chat.hiddenForUserIds.push(effectiveUserId);
+    }
+    for (const [_, msg] of store.messages.entries()) {
+      if (msg.chatId === chatId) {
+        if (!msg.deletedForUserIds) msg.deletedForUserIds = [];
+        if (!msg.deletedForUserIds.includes(effectiveUserId)) {
+          msg.deletedForUserIds.push(effectiveUserId);
+        }
+      }
+    }
+    store.saveToFile();
+    broadcastChatDeleted(chatId, memberIds, effectiveUserId);
+  } else {
+    for (const [_, msg] of store.messages.entries()) {
+      if (msg.chatId === chatId) {
+        msg.isDeletedForEveryone = true;
+      }
+    }
+    store.saveToFile();
+    broadcastChatDeleted(chatId, memberIds);
+  }
 
   res.json({ success: true, chatId });
 });

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Users, UserPlus, Check, Search, AlertCircle, CheckCircle2, Loader2, ArrowLeft } from 'lucide-react';
 import { User } from '../../types/index.js';
+import { getAvatarUrl } from '../../utils/avatar.js';
 
 interface NewChatModalProps {
   isOpen: boolean;
@@ -218,7 +219,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                       >
                         <div className="flex items-center gap-3">
                           <img
-                            src={u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                            src={getAvatarUrl(u.avatar)}
                             alt={u.name}
                             className="w-9 h-9 rounded-full object-cover"
                           />
@@ -283,7 +284,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                         >
                           <div className="flex items-center gap-2.5">
                             <img
-                              src={u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                              src={getAvatarUrl(u.avatar)}
                               alt=""
                               className="w-8 h-8 rounded-full object-cover"
                             />

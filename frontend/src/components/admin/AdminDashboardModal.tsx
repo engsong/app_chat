@@ -20,6 +20,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { User, Chat, Message } from '../../types/index.js';
+import { getAvatarUrl } from '../../utils/avatar.js';
 
 interface AdminDashboardModalProps {
   isOpen: boolean;
@@ -374,7 +375,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <img
-                          src={u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                          src={getAvatarUrl(u.avatar)}
                           alt={u.name}
                           className="w-10 h-10 rounded-full object-cover flex-shrink-0"
                         />
@@ -542,10 +543,22 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                         key={msg.id}
                         className="p-3 bg-[#202c33] border border-[#2a3942] rounded-xl max-w-xl shadow"
                       >
-                        <div className="flex items-center justify-between text-[11px] text-[#8696a0] border-b border-[#2a3942] pb-1.5 mb-1.5">
-                          <span className="font-semibold text-[#00a884]">
-                            {msg.sender?.name || 'Unknown User'} ({msg.sender?.phone || 'No phone'})
-                          </span>
+                        <div className="flex items-center justify-between text-[11px] text-[#8696a0] border-b border-[#2a3942] pb-1.5 mb-1.5 flex-wrap gap-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-semibold text-[#00a884]">
+                              {msg.sender?.name || 'Unknown User'} ({msg.sender?.phone || 'No phone'})
+                            </span>
+                            {msg.wasDeletedForEveryone && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium border border-red-500/30">
+                                🗑️ Deleted for everyone
+                              </span>
+                            )}
+                            {msg.wasDeletedForUsers && !msg.wasDeletedForEveryone && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-medium border border-amber-500/30">
+                                🗑️ Deleted/Cleared by user
+                              </span>
+                            )}
+                          </div>
                           <span>{new Date(msg.createdAt).toLocaleString()}</span>
                         </div>
 
