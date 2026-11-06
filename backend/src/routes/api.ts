@@ -38,7 +38,7 @@ apiRouter.post('/push/subscribe', (req, res) => {
 
 // Test push notification endpoint (trigger immediately to verify lock screen delivery)
 apiRouter.post('/push/test', async (req, res) => {
-  const { userId } = req.body;
+  const userId = (req.body?.userId || req.query?.userId) as string;
   if (!userId) return res.status(400).json({ error: 'userId is required' });
 
   const subs = store.pushSubscriptions.get(userId);
