@@ -271,10 +271,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       ) : (
         <div className="h-16 px-4 bg-[#111b21] flex items-center justify-between border-b border-[#202c33] flex-shrink-0">
-          {/* WhatsApp / IChat Title */}
+          {/* IChat Title */}
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-white select-none">
-              WhatsApp
+              IChat
             </h1>
           </div>
 
