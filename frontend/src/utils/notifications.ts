@@ -125,13 +125,25 @@ export async function subscribeUserToWebPush(userId: string, allowPrompt: boolea
       }
 
       if (permStatus.receive === 'granted') {
-        // 4. Create high-importance Android notification channel for calls & messages
+        // 4. Create high-importance Android notification channels for calls & messages
         try {
           await PushNotifications.createChannel({
-            id: 'ichat_notifications',
-            name: 'IChat Notifications',
-            description: 'Calls and instant messages',
+            id: 'ichat_message_channel_v4',
+            name: 'IChat Messages',
+            description: 'Instant message alerts and notifications',
             importance: 5, // High importance (plays sound and pops up)
+            visibility: 1, // Public (shows on lock screen)
+            vibration: true,
+            sound: 'default',
+            lights: true,
+            lightColor: '#25D366',
+          });
+
+          await PushNotifications.createChannel({
+            id: 'ichat_call_channel_v4',
+            name: 'IChat Incoming Calls',
+            description: 'Incoming voice and video call alerts',
+            importance: 5, // Max importance
             visibility: 1, // Public (shows on lock screen)
             vibration: true,
             sound: 'default',

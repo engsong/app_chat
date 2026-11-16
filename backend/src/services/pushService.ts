@@ -94,12 +94,14 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
     }
 
     const isCall = payload.data?.type === 'call' || payload.title?.toLowerCase().includes('call');
-    const channelId = isCall ? 'ichat_call_notifications' : 'ichat_notifications';
+    const channelId = isCall ? 'ichat_call_channel_v4' : 'ichat_message_channel_v4';
 
     stringifiedData.title = payload.title;
     stringifiedData.body = payload.body;
     if (isCall) {
       stringifiedData.type = 'call';
+    } else {
+      stringifiedData.type = 'chat';
     }
 
     const message: any = {

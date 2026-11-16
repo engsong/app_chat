@@ -19,22 +19,93 @@ public class IChatFirebaseMessagingService extends MessagingService {
 
     @Override
     public void onMessageReceived(@NonNull RemoteMessage remoteMessage) {
+        // Ensure high-importance notification channels exist in this process
+        NotificationHelper.createChannels(this);
+
         super.onMessageReceived(remoteMessage);
 
         Map<String, String> data = remoteMessage.getData();
         String type = data != null ? data.get("type") : null;
+        String title = null;
+        String body = null;
+
+        if (remoteMessage.getNotification() != null) {
+            title = remoteMessage.getNotification().getTitle();
+            body = remoteMessage.getNotification().getBody();
+        }
+        if (title == null && data != null) {
+            title = data.get("title");
+        }
+        if (body == null && data != null) {
+            body = data.get("body");
+        }
 
         boolean isCall = "call".equalsIgnoreCase(type) ||
-            (remoteMessage.getNotification() != null &&
-             remoteMessage.getNotification().getTitle() != null &&
-             remoteMessage.getNotification().getTitle().toLowerCase().contains("call"));
+            (title != null && title.toLowerCase().contains("call"));
 
         if (isCall) {
-            handleIncomingCallPush(data);
+            handleIncomingCallPush(data, title, body);
+        } else {
+            handleChatMessagePush(title, body, data);
         }
     }
 
-    private void handleIncomingCallPush(Map<String, String> data) {
+    private void handleChatMessagePush(String title, String body, Map<String, String> data) {
+        try {
+            // Wake up screen briefly (5 seconds) so user sees the notification pop up on lock screen
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                PowerManager.WakeLock wakeLock = pm.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK |
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP |
+                    PowerManager.ON_AFTER_RELEASE,
+                    "ichat:message_wake"
+                );
+                wakeLock.acquire(5000);
+            }
+        } catch (Exception ignored) {}
+
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK |
+            Intent.FLAG_ACTIVITY_CLEAR_TOP |
+            Intent.FLAG_ACTIVITY_SINGLE_TOP
+        );
+        if (data != null) {
+            for (Map.Entry<String, String> entry : data.entrySet()) {
+                intent.putExtra(entry.getKey(), entry.getValue());
+            }
+        }
+
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            flags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+
+        int reqCode = (int) System.currentTimeMillis();
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, reqCode, intent, flags);
+
+        Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NotificationHelper.MSG_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_ichat)
+            .setContentTitle(title != null && !title.isEmpty() ? title : "IChat Message")
+            .setContentText(body != null ? body : "New message received")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setSound(soundUri)
+            .setVibrate(new long[]{0, 300, 150, 300})
+            .setContentIntent(pendingIntent);
+
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) {
+            nm.notify(reqCode, builder.build());
+        }
+    }
+
+    private void handleIncomingCallPush(Map<String, String> data, String fallbackTitle, String fallbackBody) {
         // 1. Wake up the device screen immediately
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -45,7 +116,7 @@ public class IChatFirebaseMessagingService extends MessagingService {
                     PowerManager.ON_AFTER_RELEASE,
                     "ichat:incoming_call_wake"
                 );
-                wakeLock.acquire(25000); // 25 seconds wake lock
+                wakeLock.acquire(30000); // 30 seconds wake lock for incoming call
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -95,7 +166,7 @@ public class IChatFirebaseMessagingService extends MessagingService {
         Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
 
         // 4. Build Notification with setFullScreenIntent
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "ichat_call_notifications")
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NotificationHelper.CALL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_ichat)
             .setContentTitle("Incoming " + callType)
             .setContentText(callerName + " is calling you...")
@@ -116,7 +187,7 @@ public class IChatFirebaseMessagingService extends MessagingService {
             notificationManager.notify(CALL_NOTIFICATION_ID, builder.build());
         }
 
-        // 5. Also launch MainActivity directly over lock screen
+        // 5. Also attempt to launch MainActivity directly over lock screen
         try {
             startActivity(fullScreenIntent);
         } catch (Exception e) {
