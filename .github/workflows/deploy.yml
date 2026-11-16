@@ -107,12 +107,17 @@ jobs:
           HOST="${SERVER_HOST:-150.95.30.215}"
           USER="${SERVER_USER:-root}"
           PASS="${SERVER_PASSWORD:-Changeme1!2@}"
+          export SSHPASS="$PASS"
           echo "Verifying APK artifact exists..."
           ls -lh frontend/android/app/build/outputs/apk/debug/app-debug.apk
-          export SSHPASS="$PASS"
-          echo "Connecting to $HOST..."
+          
+          echo "Creating downloads directory on $HOST..."
           sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USER}@${HOST}" "mkdir -p /var/www/chat-app/downloads"
-          echo "Syncing APK via rsync..."
-          sshpass -e rsync -avz --progress -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" frontend/android/app/build/outputs/apk/debug/app-debug.apk "${USER}@${HOST}:/var/www/chat-app/downloads/ichat.apk"
+          
+          echo "Uploading APK with fallback strategies..."
+          sshpass -e scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null frontend/android/app/build/outputs/apk/debug/app-debug.apk "${USER}@${HOST}:/var/www/chat-app/downloads/ichat.apk" || \
+          rsync -avz -e "sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" frontend/android/app/build/outputs/apk/debug/app-debug.apk "${USER}@${HOST}:/var/www/chat-app/downloads/ichat.apk" || \
+          (base64 -w 0 frontend/android/app/build/outputs/apk/debug/app-debug.apk | sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USER}@${HOST}" "base64 -d > /var/www/chat-app/downloads/ichat.apk")
+          
           sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USER}@${HOST}" "chmod 644 /var/www/chat-app/downloads/ichat.apk && ls -lh /var/www/chat-app/downloads/ichat.apk"
           echo "🎉 APK published to https://chat.on-excapp.app/download/ichat.apk"
