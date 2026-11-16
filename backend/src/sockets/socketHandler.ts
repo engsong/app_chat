@@ -589,14 +589,23 @@ export function setupSocketHandlers(io: Server) {
         });
       }
 
-      // Send Web Push notification for incoming call (shows on mobile lock screen even if app closed)
+      // Send Push notification for incoming call (wakes screen & shows WhatsApp full-screen UI)
       sendPushToUser(data.userToCall, {
         title: data.isVideo ? '📹 Incoming Video Call' : '📞 Incoming Voice Call',
         body: `${data.callerName} is calling you... Tap to answer.`,
         icon: data.callerAvatar || '/logo.png',
         tag: 'incoming-call',
         requireInteraction: true,
-        data: { url: 'https://chat.on-excapp.app', type: 'call' },
+        data: {
+          url: 'https://chat.on-excapp.app',
+          type: 'call',
+          callId,
+          callerName: data.callerName,
+          callerAvatar: data.callerAvatar || '',
+          isVideo: String(!!data.isVideo),
+          chatId: targetChatId || '',
+          from: data.from,
+        },
       });
     });
 

@@ -96,25 +96,18 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
     const isCall = payload.data?.type === 'call' || payload.title?.toLowerCase().includes('call');
     const channelId = isCall ? 'ichat_call_notifications' : 'ichat_notifications';
 
-    const message: Message = {
+    stringifiedData.title = payload.title;
+    stringifiedData.body = payload.body;
+    if (isCall) {
+      stringifiedData.type = 'call';
+    }
+
+    const message: any = {
       token,
-      notification: {
-        title: payload.title,
-        body: payload.body,
-      },
       data: stringifiedData,
       android: {
         priority: 'high',
-        notification: {
-          channelId,
-          icon: 'ic_stat_ichat',
-          color: '#25D366',
-          sound: 'default',
-          priority: 'max',
-          visibility: 'public',
-          defaultSound: true,
-          defaultVibrateTimings: true,
-        },
+        ttl: 60 * 1000,
       },
       apns: {
         payload: {
@@ -126,6 +119,25 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
         },
       },
     };
+
+    // For chat messages, use system notification.
+    // For calls, omit notification block so Android OS triggers IChatFirebaseMessagingService to wake screen & launch full-screen call UI.
+    if (!isCall) {
+      message.notification = {
+        title: payload.title,
+        body: payload.body,
+      };
+      message.android.notification = {
+        channelId,
+        icon: 'ic_stat_ichat',
+        color: '#25D366',
+        sound: 'default',
+        priority: 'max',
+        visibility: 'public',
+        defaultSound: true,
+        defaultVibrateTimings: true,
+      };
+    }
 
     const response = await getMessaging().send(message);
     console.log(`[FCM] High-priority native push sent successfully via Firebase Admin, messageId: ${response}`);
