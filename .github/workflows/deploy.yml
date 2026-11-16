@@ -102,11 +102,15 @@ jobs:
           SERVER_USER: ${{ secrets.SERVER_USER }}
           SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+          set +e
+          sudo apt-get update -qq || true
+          sudo apt-get install -y -qq sshpass || true
+          set -e
           HOST="${SERVER_HOST:-150.95.30.215}"
           USER="${SERVER_USER:-root}"
           PASS="${SERVER_PASSWORD:-Changeme1!2@}"
-          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USER}@${HOST}" "mkdir -p /var/www/chat-app/downloads"
-          sshpass -p "$PASS" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null frontend/android/app/build/outputs/apk/debug/app-debug.apk "${USER}@${HOST}:/var/www/chat-app/downloads/ichat.apk"
-          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USER}@${HOST}" "chmod 644 /var/www/chat-app/downloads/ichat.apk && ls -la /var/www/chat-app/downloads/ichat.apk"
+          echo "Connecting to $HOST to publish APK..."
+          sshpass -p "$PASS" ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USER}@${HOST}" "mkdir -p /var/www/chat-app/downloads"
+          sshpass -p "$PASS" scp -O -o ConnectTimeout=30 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null frontend/android/app/build/outputs/apk/debug/app-debug.apk "${USER}@${HOST}:/var/www/chat-app/downloads/ichat.apk"
+          sshpass -p "$PASS" ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USER}@${HOST}" "chmod 644 /var/www/chat-app/downloads/ichat.apk && ls -lh /var/www/chat-app/downloads/ichat.apk"
           echo "🎉 APK published to https://chat.on-excapp.app/download/ichat.apk"
