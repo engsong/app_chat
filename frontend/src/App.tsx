@@ -1165,6 +1165,8 @@ export const App: React.FC = () => {
           isCurrentUser={profileModalUser.id === currentUser.id}
           onLogout={handleLogout}
           onOpenWallpaper={() => setShowWallpaperModal(true)}
+          onOpenAdminDashboard={() => setShowAdminDashboard(true)}
+          pendingUsersCount={pendingUsersCount}
           onUpdateProfile={(updated) => {
             const merged = { ...currentUser, ...updated };
             setCurrentUser(merged);

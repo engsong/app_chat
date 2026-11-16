@@ -149,9 +149,9 @@ export const CallModal: React.FC<CallModalProps> = ({
             {/* Decline Button */}
             <button
               onClick={onReject}
-              className="flex flex-col items-center gap-2 group active:scale-90 transition-transform"
+              className="flex flex-col items-center gap-2 group active:scale-95 transition-all"
             >
-              <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center text-white shadow-2xl shadow-red-600/50 transition-all">
+              <div className="w-[76px] h-[76px] sm:w-[84px] sm:h-[84px] rounded-full bg-[#ea0038] hover:bg-[#c90030] flex items-center justify-center text-white shadow-2xl shadow-red-600/60 ring-4 ring-red-500/30 active:scale-90 transition-all">
                 <PhoneOff className="w-8 h-8 sm:w-9 sm:h-9" />
               </div>
               <span className="text-sm font-medium text-gray-300 group-hover:text-white">Decline</span>
@@ -160,9 +160,9 @@ export const CallModal: React.FC<CallModalProps> = ({
             {/* Accept Button */}
             <button
               onClick={onAnswer}
-              className="flex flex-col items-center gap-2 group active:scale-90 transition-transform"
+              className="flex flex-col items-center gap-2 group active:scale-95 transition-all"
             >
-              <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-full bg-[#00a884] hover:bg-[#008f6f] flex items-center justify-center text-white shadow-2xl shadow-[#00a884]/60 transition-all animate-pulse">
+              <div className="w-[76px] h-[76px] sm:w-[84px] sm:h-[84px] rounded-full bg-[#25D366] hover:bg-[#20ba59] flex items-center justify-center text-white shadow-2xl shadow-emerald-500/60 ring-4 ring-emerald-500/35 animate-pulse active:scale-90 transition-all">
                 {incomingCall.isVideo ? (
                   <Video className="w-8 h-8 sm:w-9 sm:h-9" />
                 ) : (
@@ -283,24 +283,24 @@ export const CallModal: React.FC<CallModalProps> = ({
           {/* Mute Mic */}
           <button
             onClick={onToggleMute}
-            className={`w-13 h-13 p-3.5 rounded-full transition-all ${
+            className={`w-12 h-12 p-3 rounded-full flex items-center justify-center transition-all ${
               isMuted ? 'bg-red-600 text-white' : 'bg-[#202c33]/90 hover:bg-[#2a3942] text-white'
             }`}
             title={isMuted ? 'Unmute' : 'Mute'}
           >
-            {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+            {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
 
           {/* Toggle Video */}
           {isVideoCall && (
             <button
               onClick={onToggleVideo}
-              className={`w-13 h-13 p-3.5 rounded-full transition-all ${
+              className={`w-12 h-12 p-3 rounded-full flex items-center justify-center transition-all ${
                 isVideoDisabled ? 'bg-red-600 text-white' : 'bg-[#202c33]/90 hover:bg-[#2a3942] text-white'
               }`}
               title={isVideoDisabled ? 'Turn Camera On' : 'Turn Camera Off'}
             >
-              {isVideoDisabled ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
+              {isVideoDisabled ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
             </button>
           )}
 
@@ -308,19 +308,19 @@ export const CallModal: React.FC<CallModalProps> = ({
           {isVideoCall && (
             <button
               onClick={onToggleScreenShare}
-              className={`w-13 h-13 p-3.5 rounded-full transition-all ${
+              className={`w-12 h-12 p-3 rounded-full flex items-center justify-center transition-all ${
                 isScreenSharing ? 'bg-[#00a884] text-white' : 'bg-[#202c33]/90 hover:bg-[#2a3942] text-white'
               }`}
               title="Share Screen"
             >
-              <Monitor className="w-6 h-6" />
+              <Monitor className="w-5 h-5" />
             </button>
           )}
 
           {/* End Call */}
           <button
             onClick={onEndCall}
-            className="w-14 h-14 p-4 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-xl shadow-red-600/40 transition-transform active:scale-95"
+            className="w-14 h-14 p-4 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-xl shadow-red-600/40 flex items-center justify-center transition-transform active:scale-95"
             title="End Call"
           >
             <PhoneOff className="w-6 h-6" />

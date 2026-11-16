@@ -6,6 +6,7 @@ import {
   Clock,
   Globe,
   ShieldCheck,
+  ShieldAlert,
   Mail,
   Phone,
   Edit2,
@@ -13,6 +14,9 @@ import {
   Copy,
   LogOut,
   Camera,
+  Download,
+  ChevronRight,
+  Bell,
   Image as ImageIcon
 } from 'lucide-react';
 import { User } from '../../types/index.js';
@@ -26,6 +30,8 @@ interface BusinessProfileModalProps {
   onUpdateProfile?: (updated: Partial<User>) => void;
   onLogout?: () => void;
   onOpenWallpaper?: () => void;
+  onOpenAdminDashboard?: () => void;
+  pendingUsersCount?: number;
 }
 
 export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
@@ -36,6 +42,8 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
   onUpdateProfile,
   onLogout,
   onOpenWallpaper,
+  onOpenAdminDashboard,
+  pendingUsersCount,
 }) => {
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -277,6 +285,71 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
               )}
             </div>
           </div>
+
+          {/* Quick Actions (Admin Console & Download Android APK) */}
+          {isCurrentUser && (
+            <div className="space-y-2.5">
+              {/* Admin Console Card (Only for admin) */}
+              {(user.role === 'admin' || user.phone === '02054245616' || user.phone?.toLowerCase() === 'admin') && onOpenAdminDashboard && (
+                <div
+                  onClick={() => {
+                    onClose();
+                    onOpenAdminDashboard();
+                  }}
+                  className="p-3.5 bg-gradient-to-r from-amber-500/15 via-[#111b21] to-[#111b21] border border-amber-500/30 hover:border-amber-500/60 rounded-xl cursor-pointer transition-all flex items-center justify-between group shadow-md"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                      <ShieldAlert className="w-5 h-5 text-amber-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-white group-hover:text-amber-300 transition-colors">
+                          Admin Console
+                        </span>
+                        {pendingUsersCount !== undefined && pendingUsersCount > 0 && (
+                          <span className="px-2 py-0.5 rounded-full bg-amber-500 text-black text-[9px] font-black animate-pulse">
+                            {pendingUsersCount} pending
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-[#8696a0] mt-0.5">
+                        Approve users & monitor active chats
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-amber-400/80 group-hover:translate-x-1 transition-transform" />
+                </div>
+              )}
+
+              {/* Download Android APK Card */}
+              <a
+                href="/download/ichat.apk"
+                download="ichat.apk"
+                className="p-3.5 bg-gradient-to-r from-[#00a884]/15 via-[#111b21] to-[#111b21] border border-[#00a884]/30 hover:border-[#00a884]/60 rounded-xl transition-all flex items-center justify-between group shadow-md"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#00a884]/20 text-[#00a884] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                    <Download className="w-5 h-5 text-[#00a884]" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-white group-hover:text-[#00a884] transition-colors">
+                        Download Android App (APK)
+                      </span>
+                      <span className="px-1.5 py-0.5 bg-[#00a884]/25 text-[#00a884] text-[9px] font-bold rounded">
+                        v1.0.0
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#8696a0] mt-0.5">
+                      Install on phone for lock screen incoming calls
+                    </p>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-[#00a884] group-hover:translate-x-1 transition-transform" />
+              </a>
+            </div>
+          )}
 
           {/* Security & App Access Settings */}
           {isCurrentUser && (

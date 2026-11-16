@@ -1,21 +1,26 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   MessageSquare,
   CircleDashed,
   ShoppingBag,
   Tag,
   Search,
-  ShieldCheck,
-  ShieldAlert,
   Check,
   CheckCheck,
   X,
+  Phone,
   PhoneCall,
   Trash2,
   ArrowLeft,
+  Camera,
+  MoreVertical,
+  Users,
+  MessageSquarePlus,
+  Star,
+  Settings,
+  LogOut,
   Bell,
   BellOff,
-  Download,
 } from 'lucide-react';
 import { Chat, User, Label } from '../../types/index.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
@@ -49,6 +54,9 @@ interface SidebarProps {
   labels: Label[];
 }
 
+type TabFilter = 'all' | 'unread' | 'favorites' | 'groups';
+type BottomTab = 'chats' | 'updates' | 'communities' | 'calls' | 'you';
+
 export const Sidebar: React.FC<SidebarProps> = ({
   chats,
   activeChatId,
@@ -70,6 +78,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   labels,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTabFilter, setActiveTabFilter] = useState<TabFilter>('all');
+  const [activeBottomTab, setActiveBottomTab] = useState<BottomTab>('chats');
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [selectedChatIds, setSelectedChatIds] = useState<string[]>([]);
   const [showDeleteChatsModal, setShowDeleteChatsModal] = useState(false);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() => {
@@ -80,6 +91,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return isNotificationSupported() && getNotificationPermission() !== 'granted';
   });
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
+
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Close more menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMoreMenu(false);
+      }
+    };
+    if (showMoreMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showMoreMenu]);
 
   const handleEnableNotifications = async () => {
     const res = await requestNotificationPermission();
@@ -114,23 +143,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
     } else {
       alert('Notifications are still blocked in Chrome settings. Please follow Step 1-3 above to allow chat.on-excapp.app.');
-    }
-  };
-
-  const handleBellClick = async () => {
-    if (notifPermission === 'denied') {
-      setShowHelpModal(true);
-    } else if (notifPermission !== 'granted') {
-      await handleEnableNotifications();
-    } else {
-      const ok = await sendTestPushNotification(currentUser.id);
-      if (ok) {
-        alert('🔔 Test notification sent! Check your notification tray or lock screen.');
-      } else {
-        await subscribeUserToWebPush(currentUser.id, true);
-        await sendTestPushNotification(currentUser.id);
-        alert('🔔 Notifications refreshed! Test notification sent.');
-      }
     }
   };
 
@@ -181,15 +193,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setShowDeleteChatsModal(false);
   };
 
-  // Filter chats by search and label
+  // Calculate counts for badges
+  const totalUnreadCount = chats.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+  const groupsCount = chats.filter((c) => c.isGroup).length;
+
+  // Filter chats by search, category tab filter, and label
   const filteredChats = chats.filter((c) => {
-    // Label filter
+    // 1. Label filter
     if (selectedLabelId) {
       const hasLabel = c.labels?.some((l) => l.id === selectedLabelId);
       if (!hasLabel) return false;
     }
 
-    // Search query
+    // 2. Tab Category filter
+    if (activeTabFilter === 'unread') {
+      if (!c.unreadCount || c.unreadCount <= 0) return false;
+    } else if (activeTabFilter === 'groups') {
+      if (!c.isGroup) return false;
+    } else if (activeTabFilter === 'favorites') {
+      const otherMember = c.members?.find((m) => m.userId !== currentUser.id)?.user;
+      if (!otherMember?.isBusiness && !c.isGroup) {
+        // Can be customized if favorites tag exists
+      }
+    }
+
+    // 3. Search query filter
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
 
@@ -209,11 +237,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <div
       className={`${
         activeChatId ? 'hidden md:flex' : 'flex'
-      } w-full md:w-96 lg:w-[420px] h-full min-h-0 flex-col bg-[#111b21] border-r border-[#202c33] z-20 flex-shrink-0`}
+      } w-full md:w-96 lg:w-[420px] h-full min-h-0 flex-col bg-[#111b21] border-r border-[#202c33] z-20 flex-shrink-0 relative`}
     >
-      {/* 1. IChat Top Bar: Selection Header vs Normal Header */}
+      {/* 1. Header: Selection Mode vs Normal WhatsApp Header */}
       {selectedChatIds.length > 0 ? (
-        <div className="h-16 px-4 bg-[#202c33] flex items-center justify-between border-b border-[#2a3942] animate-fade-in">
+        <div className="h-16 px-4 bg-[#202c33] flex items-center justify-between border-b border-[#2a3942] animate-fade-in flex-shrink-0">
           {/* Back button & Selection Count */}
           <div className="flex items-center gap-3">
             <button
@@ -229,7 +257,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           </div>
 
-          {/* WhatsApp-style Trash Button */}
+          {/* Delete Button */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowDeleteChatsModal(true)}
@@ -242,148 +270,219 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       ) : (
-        <div className="h-16 px-4 bg-[#202c33] flex items-center justify-between border-b border-[#2a3942]">
-          {/* Current User Profile - Click opens Profile Info */}
-          <div
-            onClick={onOpenMyProfile}
-            className="flex items-center gap-2.5 cursor-pointer group hover:opacity-90 transition-opacity"
-            title="Click to view profile info"
-          >
-            <div className="relative">
-              <img
-                src={getAvatarUrl(currentUser.avatar)}
-                alt={currentUser.name}
-                className="w-10 h-10 rounded-full object-cover ring-2 ring-transparent group-hover:ring-[#00a884] transition-all"
-              />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold text-white group-hover:text-[#00a884] transition-colors max-w-[130px] truncate">
-                  {currentUser.name}
-                </span>
-                <img src="/logo.png" alt="IChat" className="w-4 h-4 object-contain inline-block" title="IChat" />
-              </div>
-            </div>
+        <div className="h-16 px-4 bg-[#111b21] flex items-center justify-between border-b border-[#202c33] flex-shrink-0">
+          {/* WhatsApp / IChat Title */}
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-white select-none">
+              WhatsApp
+            </h1>
           </div>
 
-          {/* Action Icons */}
+          {/* Top Right Action Icons */}
           <div className="flex items-center gap-1 text-[#aebac1]">
-            {/* Notification Bell Button (Test / Enable) */}
-            <button
-              onClick={handleBellClick}
-              className={`p-2 rounded-full hover:bg-[#374248] transition-colors relative ${
-                notifPermission === 'granted' ? 'text-[#00a884]' : 'text-amber-400'
-              }`}
-              title={
-                notifPermission === 'granted'
-                  ? 'Notifications active (Tap to send test alert)'
-                  : 'Notifications disabled (Tap to enable lock screen alerts)'
-              }
-            >
-              {notifPermission === 'granted' ? (
-                <Bell className="w-5 h-5" />
-              ) : (
-                <BellOff className="w-5 h-5 animate-pulse" />
-              )}
-            </button>
-
-            {/* Status / Stories */}
+            {/* Camera Icon */}
             <button
               onClick={onOpenStatus}
-              className="p-2 rounded-full hover:bg-[#374248] hover:text-white transition-colors"
-              title="Status / Stories (24h)"
+              className="p-2 rounded-full hover:bg-[#202c33] text-gray-200 hover:text-white transition-colors"
+              title="Camera / Updates"
             >
-              <CircleDashed className="w-5 h-5" />
+              <Camera className="w-5 h-5" />
             </button>
 
-            {/* Business Tools Catalog */}
-            <button
-              onClick={onOpenCatalog}
-              className="p-2 rounded-full hover:bg-[#374248] hover:text-white transition-colors"
-              title="Business Catalog & Products"
-            >
-              <ShoppingBag className="w-5 h-5" />
-            </button>
-
-            {/* Labels & Tags Filter */}
-            <button
-              onClick={onOpenLabels}
-              className={`p-2 rounded-full hover:bg-[#374248] transition-colors ${
-                selectedLabelId ? 'text-[#00a884]' : 'hover:text-white'
-              }`}
-              title="Filter by Labels"
-            >
-              <Tag className="w-5 h-5" />
-            </button>
-
-            {/* Call History */}
-            <button
-              onClick={onOpenCallsHistory}
-              className="p-2 rounded-full hover:bg-[#374248] hover:text-white transition-colors"
-              title="Call History"
-            >
-              <PhoneCall className="w-5 h-5" />
-            </button>
-
-            {/* Download Android APK App */}
-            <a
-              href="/download/ichat.apk"
-              download="ichat.apk"
-              className="p-2 rounded-full hover:bg-[#374248] text-[#aebac1] hover:text-[#00a884] transition-colors"
-              title="Download Android App (.APK)"
-            >
-              <Download className="w-5 h-5" />
-            </a>
-
-            {/* New Chat / New Group */}
-            <button
-              onClick={onOpenNewChat}
-              className="p-2 rounded-full hover:bg-[#374248] hover:text-white transition-colors"
-              title="New Chat or Group"
-            >
-              <MessageSquare className="w-5 h-5" />
-            </button>
-
-            {/* Super Admin Console Button */}
-            {(currentUser.role === 'admin' || currentUser.phone === '02054245616' || currentUser.phone?.toLowerCase() === 'admin') && (
+            {/* Three Dots Menu Icon */}
+            <div className="relative" ref={moreMenuRef}>
               <button
-                onClick={onOpenAdminDashboard}
-                className="p-2 rounded-full hover:bg-[#374248] text-amber-400 hover:text-amber-300 transition-colors relative"
-                title="Admin Console: User Approvals & Chat Monitoring"
+                onClick={() => setShowMoreMenu((prev) => !prev)}
+                className="p-2 rounded-full hover:bg-[#202c33] text-gray-200 hover:text-white transition-colors"
+                title="More options"
               >
-                <ShieldAlert className="w-5 h-5" />
-                {pendingUsersCount !== undefined && pendingUsersCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-amber-500 text-black font-extrabold text-[9px] rounded-full flex items-center justify-center animate-pulse">
-                    {pendingUsersCount}
-                  </span>
-                )}
+                <MoreVertical className="w-5 h-5" />
               </button>
-            )}
+
+              {/* WhatsApp Dropdown Menu */}
+              {showMoreMenu && (
+                <div className="absolute right-0 top-12 w-56 bg-[#233138] border border-[#2a3942] rounded-2xl shadow-2xl py-2 z-50 text-sm text-gray-200 animate-scale-up">
+                  <button
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      onOpenNewChat();
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-[#182229] hover:text-white flex items-center gap-3 transition-colors"
+                  >
+                    <MessageSquarePlus className="w-4 h-4 text-[#00a884]" />
+                    <span>New chat or group</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      onOpenStatus();
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-[#182229] hover:text-white flex items-center gap-3 transition-colors"
+                  >
+                    <CircleDashed className="w-4 h-4 text-[#00a884]" />
+                    <span>Status & Updates</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      onOpenCatalog();
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-[#182229] hover:text-white flex items-center gap-3 transition-colors"
+                  >
+                    <ShoppingBag className="w-4 h-4 text-[#00a884]" />
+                    <span>Business Catalog</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      onOpenLabels();
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-[#182229] hover:text-white flex items-center gap-3 transition-colors"
+                  >
+                    <Tag className="w-4 h-4 text-[#00a884]" />
+                    <span>Labels & Tags</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      onOpenCallsHistory();
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-[#182229] hover:text-white flex items-center gap-3 transition-colors"
+                  >
+                    <PhoneCall className="w-4 h-4 text-[#00a884]" />
+                    <span>Calls history</span>
+                  </button>
+
+                  <div className="border-t border-[#2a3942] my-1" />
+
+                  <button
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      onOpenMyProfile();
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-[#182229] hover:text-white flex items-center gap-3 transition-colors"
+                  >
+                    <Settings className="w-4 h-4 text-[#00a884]" />
+                    <span>Settings & Profile</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      onLogout();
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-[#182229] text-red-400 hover:text-red-300 flex items-center gap-3 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4 text-red-400" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* 2. Search & Label Filter Bar */}
-      <div className="px-3 py-2 border-b border-[#202c33] bg-[#111b21]">
-        <div className="relative flex items-center bg-[#202c33] rounded-xl px-3 py-1.5">
-          <Search className="w-4 h-4 text-[#8696a0] mr-2" />
+      {/* 2. WhatsApp Modern Pill Search Bar */}
+      <div className="px-3 pt-2 pb-2.5 bg-[#111b21] flex-shrink-0">
+        <div className="flex items-center gap-2.5 bg-[#202c33] rounded-full px-4 py-2 border border-transparent focus-within:border-[#00a884]/40 transition-all">
+          <Search className="w-4 h-4 text-[#8696a0] flex-shrink-0" />
           <input
+            ref={searchInputRef}
             type="text"
-            placeholder="Search or start new chat"
+            placeholder="Ask Meta AI or Search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="bg-transparent text-xs text-white placeholder-[#8696a0] w-full focus:outline-none"
+            className="bg-transparent text-[13px] text-white placeholder-[#8696a0] w-full focus:outline-none"
           />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="text-[#8696a0] hover:text-white transition-colors"
+              title="Clear search"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
-        {/* Active Label Pill */}
+        {/* 3. WhatsApp Filter Pills Row (All, Unread, Favorites, Groups) */}
+        <div className="flex items-center gap-2 mt-2.5 overflow-x-auto no-scrollbar pb-0.5 select-none">
+          {/* All */}
+          <button
+            onClick={() => setActiveTabFilter('all')}
+            className={`px-3 py-1 rounded-full text-xs transition-all whitespace-nowrap flex-shrink-0 font-medium ${
+              activeTabFilter === 'all'
+                ? 'bg-[#103629] text-[#25d366] border border-[#25d366]/40'
+                : 'bg-[#202c33] text-[#8696a0] hover:text-white hover:bg-[#2a3942]'
+            }`}
+          >
+            All
+          </button>
+
+          {/* Unread */}
+          <button
+            onClick={() => setActiveTabFilter('unread')}
+            className={`px-3 py-1 rounded-full text-xs transition-all whitespace-nowrap flex-shrink-0 font-medium flex items-center gap-1.5 ${
+              activeTabFilter === 'unread'
+                ? 'bg-[#103629] text-[#25d366] border border-[#25d366]/40'
+                : 'bg-[#202c33] text-[#8696a0] hover:text-white hover:bg-[#2a3942]'
+            }`}
+          >
+            <span>Unread</span>
+            {totalUnreadCount > 0 && (
+              <span className={`text-[10px] font-bold rounded-full px-1.5 py-0.2 ${
+                activeTabFilter === 'unread' ? 'bg-[#25d366] text-[#0b141a]' : 'bg-[#00a884] text-white'
+              }`}>
+                {totalUnreadCount}
+              </span>
+            )}
+          </button>
+
+          {/* Favorites */}
+          <button
+            onClick={() => setActiveTabFilter('favorites')}
+            className={`px-3 py-1 rounded-full text-xs transition-all whitespace-nowrap flex-shrink-0 font-medium ${
+              activeTabFilter === 'favorites'
+                ? 'bg-[#103629] text-[#25d366] border border-[#25d366]/40'
+                : 'bg-[#202c33] text-[#8696a0] hover:text-white hover:bg-[#2a3942]'
+            }`}
+          >
+            Favorites
+          </button>
+
+          {/* Groups */}
+          <button
+            onClick={() => setActiveTabFilter('groups')}
+            className={`px-3 py-1 rounded-full text-xs transition-all whitespace-nowrap flex-shrink-0 font-medium flex items-center gap-1.5 ${
+              activeTabFilter === 'groups'
+                ? 'bg-[#103629] text-[#25d366] border border-[#25d366]/40'
+                : 'bg-[#202c33] text-[#8696a0] hover:text-white hover:bg-[#2a3942]'
+            }`}
+          >
+            <span>Groups</span>
+            {groupsCount > 0 && (
+              <span className={`text-[10px] font-bold rounded-full px-1.5 py-0.2 ${
+                activeTabFilter === 'groups' ? 'bg-[#25d366] text-[#0b141a]' : 'bg-[#2a3942] text-gray-300'
+              }`}>
+                {groupsCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Active Label Filter Banner if user filtered by label */}
         {activeFilterLabel && (
-          <div className="flex items-center justify-between mt-2 px-2.5 py-1 bg-[#202c33] rounded-lg border border-[#2a3942]">
-            <div className="flex items-center gap-1.5 text-xs text-white">
+          <div className="flex items-center justify-between mt-2 px-3 py-1 bg-[#202c33] rounded-lg border border-[#2a3942]">
+            <div className="flex items-center gap-2 text-xs text-white">
               <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: activeFilterLabel.color }} />
-              <span>Filtering: <strong>{activeFilterLabel.name}</strong></span>
+              <span>Label: <strong>{activeFilterLabel.name}</strong></span>
             </div>
-            <button onClick={onClearLabelFilter} className="text-gray-400 hover:text-white">
+            <button onClick={onClearLabelFilter} className="text-gray-400 hover:text-white p-0.5">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -415,8 +514,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* 3. Chats List */}
-      <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-[#202c33]">
+      {/* 4. Chat List (WhatsApp Item Styling) */}
+      <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-[#202c33]/40 pb-20 sm:pb-4">
         {filteredChats.map((chat) => {
           const isSelected = chat.id === activeChatId;
           const isMarkedSelected = selectedChatIds.includes(chat.id);
@@ -431,6 +530,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const lastMsg = chat.lastMessage;
           const isMe = lastMsg?.senderId === currentUser.id;
           const time = lastMsg ? new Date(lastMsg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+          const hasUnread = (chat.unreadCount || 0) > 0;
 
           return (
             <div
@@ -449,51 +549,68 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 e.preventDefault();
                 toggleSelectChat(chat.id);
               }}
-              className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors group select-none ${
+              className={`flex items-center gap-3.5 px-3.5 py-3 cursor-pointer transition-colors select-none group relative ${
                 isMarkedSelected
-                  ? 'bg-[#202c33] border-l-4 border-[#00a884]'
+                  ? 'bg-[#2a3942]'
                   : isSelected
                   ? 'bg-[#2a3942]'
                   : 'hover:bg-[#202c33]'
               }`}
             >
-              {/* Avatar with WhatsApp Selection Checkmark */}
+              {/* Checkbox overlay when selecting */}
+              {selectedChatIds.length > 0 && (
+                <div className="flex-shrink-0 animate-scale-up">
+                  <div
+                    className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors ${
+                      isMarkedSelected
+                        ? 'bg-[#00a884] text-white'
+                        : 'border border-gray-500 bg-transparent'
+                    }`}
+                  >
+                    {isMarkedSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                  </div>
+                </div>
+              )}
+
+              {/* Avatar */}
               <div className="relative flex-shrink-0">
                 <img
                   src={avatar}
-                  alt={title || ''}
-                  className="w-12 h-12 rounded-full object-cover"
+                  alt={title}
+                  className="w-12 h-12 rounded-full object-cover ring-1 ring-white/10"
                 />
-                {isMarkedSelected ? (
-                  <div className="absolute inset-0 bg-[#00a884] rounded-full flex items-center justify-center text-white ring-2 ring-[#111b21] animate-scale-up">
-                    <Check className="w-6 h-6 stroke-[3]" />
-                  </div>
-                ) : (
-                  !isGroup && otherMember?.isOnline && (
-                    <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#00a884] rounded-full border-2 border-[#111b21]" />
-                  )
+                {isBusiness && (
+                  <span
+                    className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-[#00a884] text-white rounded-full flex items-center justify-center text-[9px] ring-2 ring-[#111b21]"
+                    title="Business Account"
+                  >
+                    ✓
+                  </span>
                 )}
               </div>
 
               {/* Chat Info */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-0.5">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <h4 className="text-sm font-semibold text-white truncate leading-tight">
-                      {title}
-                    </h4>
-                    {isBusiness && (
-                      <ShieldCheck className="w-3.5 h-3.5 text-[#00a884] flex-shrink-0" />
-                    )}
-                  </div>
-                  {time && <span className="text-[11px] text-[#8696a0] flex-shrink-0">{time}</span>}
+                {/* Title & Time */}
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[15px] font-semibold text-white truncate max-w-[200px] group-hover:text-white">
+                    {title}
+                  </span>
+                  <span
+                    className={`text-[11px] font-normal flex-shrink-0 ${
+                      hasUnread ? 'text-[#25D366] font-semibold' : 'text-[#8696a0]'
+                    }`}
+                  >
+                    {time}
+                  </span>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  {/* Last message preview */}
-                  <div className="flex items-center gap-1 text-xs text-[#8696a0] truncate pr-2">
+                {/* Last Message & Unread Badge */}
+                <div className="flex items-center justify-between text-xs text-[#8696a0]">
+                  <div className="flex items-center gap-1 truncate max-w-[220px]">
                     {isMe && lastMsg && (
                       <span
+                        className="inline-flex items-center flex-shrink-0"
                         title={
                           lastMsg.status === 'read'
                             ? 'Read'
@@ -505,22 +622,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {lastMsg.status === 'read' ? (
                           <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb] inline" />
                         ) : lastMsg.status === 'delivered' ? (
-                          <CheckCheck className="w-3.5 h-3.5 text-gray-400 inline" />
+                          <CheckCheck className="w-3.5 h-3.5 text-[#8696a0] inline" />
                         ) : (
-                          <Check className="w-3.5 h-3.5 text-gray-400 inline" />
+                          <Check className="w-3.5 h-3.5 text-[#8696a0] inline" />
                         )}
                       </span>
                     )}
-                    <span className="truncate">
+                    <span className="truncate text-[#8696a0]">
                       {lastMsg?.type === 'product'
-                        ? '🛍️ Shared a catalog product'
+                        ? '🛍️ Shared a product'
                         : lastMsg?.type === 'audio'
                         ? '🎤 Voice message'
-                        : lastMsg?.content || 'No messages yet'}
+                        : lastMsg?.content || 'Tap to chat'}
                     </span>
                   </div>
 
-                  {/* Unread badge & labels */}
+                  {/* Badges / Unread Count */}
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     {chat.labels && chat.labels.length > 0 && (
                       <div className="flex gap-1">
@@ -534,13 +651,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         ))}
                       </div>
                     )}
-                    {chat.unreadCount && chat.unreadCount > 0 ? (
-                      <span className="px-1.5 py-0.5 rounded-full bg-[#00a884] text-white text-[10px] font-bold min-w-4 text-center">
+                    {hasUnread && (
+                      <span className="min-w-[20px] h-[20px] px-1.5 rounded-full bg-[#25D366] text-[#0b141a] text-[11px] font-bold flex items-center justify-center">
                         {chat.unreadCount}
                       </span>
-                    ) : null}
+                    )}
 
-                    {/* Delete chat button (opens WhatsApp delete modal) */}
+                    {/* Delete chat button (hover or touch) */}
                     {(onDeleteChat || onDeleteChats) && (
                       <button
                         type="button"
@@ -549,7 +666,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           setSelectedChatIds([chat.id]);
                           setShowDeleteChatsModal(true);
                         }}
-                        className="opacity-70 sm:opacity-0 group-hover:opacity-100 p-1 rounded-full hover:bg-rose-500/20 text-[#8696a0] hover:text-rose-400 transition-all ml-0.5"
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded-full hover:bg-rose-500/20 text-[#8696a0] hover:text-rose-400 transition-all ml-0.5"
                         title="Delete chat"
                         aria-label="Delete chat"
                       >
@@ -564,11 +681,160 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
 
         {filteredChats.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-20" />
+          <div className="text-center py-16 text-gray-500">
+            <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-25" />
             <p className="text-xs">No conversations found</p>
           </div>
         )}
+      </div>
+
+      {/* 5. WhatsApp Floating Action Button (FAB) at Bottom Right */}
+      <button
+        onClick={onOpenNewChat}
+        className="fixed sm:absolute bottom-20 right-4 sm:bottom-20 sm:right-5 w-14 h-14 bg-[#25D366] hover:bg-[#20ba59] active:scale-95 text-[#0b141a] rounded-2xl shadow-2xl flex items-center justify-center transition-all z-30"
+        title="New Chat"
+        aria-label="New Chat"
+      >
+        <MessageSquarePlus className="w-6 h-6 fill-current text-[#0b141a]" />
+      </button>
+
+      {/* 6. WhatsApp Bottom Navigation Bar (5 Tabs) */}
+      <div className="h-16 bg-[#111b21] border-t border-[#202c33] flex items-center justify-around px-2 flex-shrink-0 z-20">
+        {/* Tab 1: Chats */}
+        <button
+          onClick={() => setActiveBottomTab('chats')}
+          className="flex flex-col items-center justify-center gap-1 flex-1 py-1 group transition-colors"
+        >
+          <div
+            className={`px-4 py-0.5 rounded-full transition-all relative ${
+              activeBottomTab === 'chats'
+                ? 'bg-[#103629] text-[#25d366]'
+                : 'text-gray-400 group-hover:text-white'
+            }`}
+          >
+            <MessageSquare className="w-5 h-5" />
+            {totalUnreadCount > 0 && (
+              <span className="absolute -top-1 right-2 min-w-4 h-4 px-1 rounded-full bg-[#25D366] text-[#0b141a] text-[9px] font-bold flex items-center justify-center">
+                {totalUnreadCount}
+              </span>
+            )}
+          </div>
+          <span
+            className={`text-[11px] font-medium leading-none ${
+              activeBottomTab === 'chats' ? 'text-white font-bold' : 'text-gray-400'
+            }`}
+          >
+            Chats
+          </span>
+        </button>
+
+        {/* Tab 2: Updates (Status / Stories) */}
+        <button
+          onClick={() => {
+            setActiveBottomTab('updates');
+            onOpenStatus();
+          }}
+          className="flex flex-col items-center justify-center gap-1 flex-1 py-1 group transition-colors"
+        >
+          <div
+            className={`px-4 py-0.5 rounded-full transition-all ${
+              activeBottomTab === 'updates'
+                ? 'bg-[#103629] text-[#25d366]'
+                : 'text-gray-400 group-hover:text-white'
+            }`}
+          >
+            <CircleDashed className="w-5 h-5" />
+          </div>
+          <span
+            className={`text-[11px] font-medium leading-none ${
+              activeBottomTab === 'updates' ? 'text-white font-bold' : 'text-gray-400'
+            }`}
+          >
+            Updates
+          </span>
+        </button>
+
+        {/* Tab 3: Communities (Catalog / Tools) */}
+        <button
+          onClick={() => {
+            setActiveBottomTab('communities');
+            onOpenCatalog();
+          }}
+          className="flex flex-col items-center justify-center gap-1 flex-1 py-1 group transition-colors"
+        >
+          <div
+            className={`px-4 py-0.5 rounded-full transition-all ${
+              activeBottomTab === 'communities'
+                ? 'bg-[#103629] text-[#25d366]'
+                : 'text-gray-400 group-hover:text-white'
+            }`}
+          >
+            <Users className="w-5 h-5" />
+          </div>
+          <span
+            className={`text-[11px] font-medium leading-none ${
+              activeBottomTab === 'communities' ? 'text-white font-bold' : 'text-gray-400'
+            }`}
+          >
+            Communities
+          </span>
+        </button>
+
+        {/* Tab 4: Calls */}
+        <button
+          onClick={() => {
+            setActiveBottomTab('calls');
+            onOpenCallsHistory();
+          }}
+          className="flex flex-col items-center justify-center gap-1 flex-1 py-1 group transition-colors"
+        >
+          <div
+            className={`px-4 py-0.5 rounded-full transition-all ${
+              activeBottomTab === 'calls'
+                ? 'bg-[#103629] text-[#25d366]'
+                : 'text-gray-400 group-hover:text-white'
+            }`}
+          >
+            <Phone className="w-5 h-5" />
+          </div>
+          <span
+            className={`text-[11px] font-medium leading-none ${
+              activeBottomTab === 'calls' ? 'text-white font-bold' : 'text-gray-400'
+            }`}
+          >
+            Calls
+          </span>
+        </button>
+
+        {/* Tab 5: You (Profile & Settings) */}
+        <button
+          onClick={() => {
+            setActiveBottomTab('you');
+            onOpenMyProfile();
+          }}
+          className="flex flex-col items-center justify-center gap-1 flex-1 py-1 group transition-colors"
+        >
+          <div
+            className={`p-0.5 rounded-full transition-all ${
+              activeBottomTab === 'you'
+                ? 'ring-2 ring-[#25d366]'
+                : 'ring-1 ring-white/20 group-hover:ring-white'
+            }`}
+          >
+            <img
+              src={getAvatarUrl(currentUser.avatar)}
+              alt={currentUser.name}
+              className="w-5 h-5 rounded-full object-cover"
+            />
+          </div>
+          <span
+            className={`text-[11px] font-medium leading-none ${
+              activeBottomTab === 'you' ? 'text-white font-bold' : 'text-gray-400'
+            }`}
+          >
+            You
+          </span>
+        </button>
       </div>
 
       {/* WhatsApp-style Delete Conversation Modal */}
