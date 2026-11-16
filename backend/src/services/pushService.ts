@@ -105,7 +105,7 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
         notification: {
           channelId: 'ichat_notifications',
           sound: 'default',
-          priority: 'high',
+          priority: 'max',
           visibility: 'public',
           defaultSound: true,
           defaultVibrateTimings: true,
