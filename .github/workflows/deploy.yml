@@ -74,6 +74,7 @@ jobs:
         working-directory: frontend/android
         run: |
           chmod +x gradlew
+          set -o pipefail
           ./gradlew assembleDebug -x lint --no-daemon --stacktrace 2>&1 | tee /tmp/gradle_output.log || {
             echo "## ❌ Gradle Build Error Details" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
