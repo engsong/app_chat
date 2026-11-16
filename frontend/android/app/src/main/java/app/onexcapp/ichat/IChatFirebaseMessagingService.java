@@ -122,8 +122,8 @@ public class IChatFirebaseMessagingService extends MessagingService {
             e.printStackTrace();
         }
 
-        // 2. Prepare Intent to launch MainActivity with full screen flags
-        Intent fullScreenIntent = new Intent(this, MainActivity.class);
+        // 2. Prepare Intent to launch native IncomingCallActivity with full screen flags
+        Intent fullScreenIntent = new Intent(this, IncomingCallActivity.class);
         fullScreenIntent.addFlags(
             Intent.FLAG_ACTIVITY_NEW_TASK |
             Intent.FLAG_ACTIVITY_CLEAR_TOP |
@@ -165,7 +165,7 @@ public class IChatFirebaseMessagingService extends MessagingService {
 
         Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
 
-        // 4. Build Notification with setFullScreenIntent
+        // 4. Build Notification with setFullScreenIntent launching IncomingCallActivity
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NotificationHelper.CALL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_ichat)
             .setContentTitle("Incoming " + callType)
@@ -179,15 +179,15 @@ public class IChatFirebaseMessagingService extends MessagingService {
             .setVibrate(new long[]{0, 1000, 500, 1000, 500, 1000})
             .setContentIntent(fullScreenPendingIntent)
             .setFullScreenIntent(fullScreenPendingIntent, true)
-            .addAction(R.drawable.ic_stat_ichat, "Decline", declinePendingIntent)
-            .addAction(R.drawable.ic_stat_ichat, "Answer", fullScreenPendingIntent);
+            .addAction(R.drawable.ic_call_decline, "Decline", declinePendingIntent)
+            .addAction(R.drawable.ic_call_accept, "Answer", fullScreenPendingIntent);
 
         NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (notificationManager != null) {
             notificationManager.notify(CALL_NOTIFICATION_ID, builder.build());
         }
 
-        // 5. Also attempt to launch MainActivity directly over lock screen
+        // 5. Also launch native IncomingCallActivity directly over lock screen
         try {
             startActivity(fullScreenIntent);
         } catch (Exception e) {

@@ -776,6 +776,24 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
+    // Real-time switch from Voice Call to Video Call
+    socket.on('switch_call_to_video', (data: { to: string; isVideo?: boolean }) => {
+      const senderId = socketUserMap.get(socket.id);
+      if (senderId && data.to) {
+        console.log(`[Call] Call switched to video by ${senderId} for ${data.to}`);
+        const pairKey = [senderId, data.to].sort().join('_');
+        const session = active1on1Calls.get(pairKey);
+        if (session) {
+          session.isVideo = data.isVideo !== false;
+        }
+        const payload = { from: senderId, isVideo: data.isVideo !== false };
+        io.to(`user_${data.to}`).emit('call_switched_to_video', payload);
+        userSocketMap.get(data.to)?.forEach((sId) => {
+          io.to(sId).emit('call_switched_to_video', payload);
+        });
+      }
+    });
+
     socket.on('ice_candidate', (data: { to: string; candidate: any }) => {
       const payload = { candidate: data.candidate, from: socketUserMap.get(socket.id) };
       io.to(`user_${data.to}`).emit('ice_candidate', payload);

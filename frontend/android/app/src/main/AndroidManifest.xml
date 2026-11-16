@@ -34,6 +34,24 @@
 
         </activity>
 
+        <!-- Native Incoming Call Activity for instant lock screen Call Screen -->
+        <activity
+            android:name=".IncomingCallActivity"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:showOnLockScreen="true"
+            android:inheritShowWhenLocked="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="app.onexcapp.ichat.INCOMING_CALL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- Custom Firebase Messaging Service for Full-Screen Call & Message Notifications -->
         <service
             android:name=".IChatFirebaseMessagingService"

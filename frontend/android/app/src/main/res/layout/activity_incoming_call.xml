@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0B141A"
+    android:padding="24dp">
+
+    <!-- Top End-to-End Encryption Banner -->
+    <LinearLayout
+        android:id="@+id/ll_top_encryption"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="36dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:tint="#8696A0"
+            android:src="@drawable/ic_stat_ichat" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:text="End-to-end encrypted"
+            android:textColor="#8696A0"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- Center Section: Caller Profile, Name, Call Type -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <!-- Avatar Container -->
+        <FrameLayout
+            android:layout_width="140dp"
+            android:layout_height="140dp"
+            android:layout_marginBottom="24dp">
+
+            <ImageView
+                android:id="@+id/iv_caller_avatar"
+                android:layout_width="140dp"
+                android:layout_height="140dp"
+                android:background="#1F2C34"
+                android:scaleType="centerCrop"
+                android:src="@mipmap/ic_launcher_round" />
+        </FrameLayout>
+
+        <!-- Caller Name -->
+        <TextView
+            android:id="@+id/tv_caller_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="IChat User"
+            android:textColor="#FFFFFF"
+            android:textSize="30sp"
+            android:textStyle="bold" />
+
+        <!-- Call Type (e.g. Incoming Voice Call / Video Call) -->
+        <TextView
+            android:id="@+id/tv_call_type"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Incoming Voice Call..."
+            android:textColor="#25D366"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Bottom Actions: Decline and Accept Buttons -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_marginBottom="48dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <!-- Decline Button Section -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageButton
+                android:id="@+id/btn_decline_call"
+                android:layout_width="76dp"
+                android:layout_height="76dp"
+                android:background="@drawable/bg_call_decline"
+                android:elevation="8dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_call_decline" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Decline"
+                android:textColor="#D1D7DB"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- Accept Button Section -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageButton
+                android:id="@+id/btn_accept_call"
+                android:layout_width="76dp"
+                android:layout_height="76dp"
+                android:background="@drawable/bg_call_accept"
+                android:elevation="8dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_call_accept" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Accept"
+                android:textColor="#D1D7DB"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+    </LinearLayout>
+
+</RelativeLayout>

@@ -4,8 +4,12 @@ import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
 import android.view.WindowManager;
 import com.getcapacitor.BridgeActivity;
 
@@ -16,6 +20,8 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         NotificationHelper.createChannels(this);
         requestNotificationPermissions();
+        checkOverlayPermission();
+        handleCallIntent(getIntent());
     }
 
     @Override
@@ -29,12 +35,43 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         wakeAndUnlock();
+        handleCallIntent(intent);
     }
 
     @Override
     public void onResume() {
         super.onResume();
         wakeAndUnlock();
+    }
+
+    private void handleCallIntent(Intent intent) {
+        if (intent == null) return;
+        boolean autoAccept = intent.getBooleanExtra("autoAcceptCall", false);
+        boolean isIncoming = intent.getBooleanExtra("isIncomingCall", false);
+
+        if (autoAccept || isIncoming) {
+            String callId = intent.getStringExtra("callId");
+            String from = intent.getStringExtra("from");
+            String callerName = intent.getStringExtra("callerName");
+            boolean isVideo = "true".equalsIgnoreCase(intent.getStringExtra("isVideo"));
+
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                try {
+                    if (getBridge() != null && getBridge().getWebView() != null) {
+                        String js = String.format(
+                            "window.__autoAcceptPendingCall = %b; " +
+                            "window.dispatchEvent(new CustomEvent('native_call_event', { detail: { autoAccept: %b, callId: '%s', from: '%s', callerName: '%s', isVideo: %b } }));",
+                            autoAccept, autoAccept,
+                            callId != null ? callId : "",
+                            from != null ? from : "",
+                            callerName != null ? callerName : "",
+                            isVideo
+                        );
+                        getBridge().getWebView().evaluateJavascript(js, null);
+                    }
+                } catch (Exception ignored) {}
+            }, 1200);
+        }
     }
 
     private void wakeAndUnlock() {
@@ -62,5 +99,21 @@ public class MainActivity extends BridgeActivity {
                 requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 101);
             }
         }
+    }
+
+    private void checkOverlayPermission() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (!Settings.canDrawOverlays(this)) {
+                    // Guide user to allow draw over other apps for lock-screen incoming calls
+                    Intent intent = new Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName())
+                    );
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                }
+            }
+        } catch (Exception ignored) {}
     }
 }

@@ -291,18 +291,30 @@ export const CallModal: React.FC<CallModalProps> = ({
             {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
 
-          {/* Toggle Video */}
-          {isVideoCall && (
-            <button
-              onClick={onToggleVideo}
-              className={`w-12 h-12 p-3 rounded-full flex items-center justify-center transition-all ${
-                isVideoDisabled ? 'bg-red-600 text-white' : 'bg-[#202c33]/90 hover:bg-[#2a3942] text-white'
-              }`}
-              title={isVideoDisabled ? 'Turn Camera On' : 'Turn Camera Off'}
-            >
-              {isVideoDisabled ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
-            </button>
-          )}
+          {/* Switch to Video / Toggle Camera */}
+          <button
+            onClick={onToggleVideo}
+            className={`w-12 h-12 p-3 rounded-full flex items-center justify-center transition-all ${
+              !isVideoCall
+                ? 'bg-[#202c33]/90 hover:bg-[#2a3942] text-gray-200 hover:text-[#00a884]'
+                : isVideoDisabled
+                ? 'bg-red-600 text-white'
+                : 'bg-[#00a884] text-white shadow-lg shadow-[#00a884]/40'
+            }`}
+            title={
+              !isVideoCall
+                ? 'Switch to Video Call'
+                : isVideoDisabled
+                ? 'Turn Camera On'
+                : 'Turn Camera Off'
+            }
+          >
+            {isVideoCall && !isVideoDisabled ? (
+              <Video className="w-5 h-5" />
+            ) : (
+              <VideoOff className="w-5 h-5" />
+            )}
+          </button>
 
           {/* Screen Share */}
           {isVideoCall && (

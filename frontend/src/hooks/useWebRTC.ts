@@ -396,14 +396,50 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     }
   };
 
-  // Toggle Camera
+  // Toggle Camera / Switch Voice Call to Video Call
   const toggleVideo = async () => {
-    if (localStreamRef.current) {
-      const videoTrack = localStreamRef.current.getVideoTracks()[0];
-      if (videoTrack) {
+    try {
+      if (!localStreamRef.current) {
+        localStreamRef.current = new MediaStream();
+      }
+
+      let videoTrack = localStreamRef.current.getVideoTracks()[0];
+
+      // If call is currently voice-only or doesn't have video track, acquire camera
+      if (!videoTrack) {
+        const camStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        });
+        videoTrack = camStream.getVideoTracks()[0];
+        if (videoTrack) {
+          localStreamRef.current.addTrack(videoTrack);
+
+          // Add or replace on peer connection
+          if (peerConnectionRef.current) {
+            const senders = peerConnectionRef.current.getSenders();
+            const videoSender = senders.find((s) => s.track && s.track.kind === 'video');
+            if (videoSender) {
+              await videoSender.replaceTrack(videoTrack);
+            } else {
+              peerConnectionRef.current.addTrack(videoTrack, localStreamRef.current);
+            }
+          }
+
+          setIsVideoCall(true);
+          setIsVideoDisabled(false);
+
+          // Notify remote peer to switch to video UI
+          if (socket && callPartnerIdRef.current) {
+            socket.emit('switch_call_to_video', { to: callPartnerIdRef.current, isVideo: true });
+          }
+        }
+      } else {
+        // Toggle camera on/off
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoDisabled(!videoTrack.enabled);
       }
+    } catch (err) {
+      console.warn('[WebRTC] Error toggling or switching to video:', err);
     }
   };
 
@@ -487,6 +523,16 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     const handleIncomingCall = (data: IncomingCallInfo) => {
       console.log('[WebRTC] Incoming call from:', data.callerName);
       setIncomingCall(data);
+
+      if ((window as any).__autoAcceptPendingCall) {
+        console.log('[WebRTC] Auto-accepting pending call accepted from native screen');
+        (window as any).__autoAcceptPendingCall = false;
+        setTimeout(() => {
+          answerCall();
+        }, 200);
+        return;
+      }
+
       soundEffects.startIncomingRingtone();
 
       // Show native system & browser notification for incoming call
@@ -587,11 +633,18 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
       setGroupParticipants((prev) => prev.filter((p) => p.userId !== data.userId));
     };
 
+    const handleCallSwitchedToVideo = (data: { from: string; isVideo: boolean }) => {
+      console.log('[WebRTC] Call switched to video by remote peer', data);
+      setIsVideoCall(true);
+      setIsVideoDisabled(false);
+    };
+
     socket.on('incoming_call', handleIncomingCall);
     socket.on('call_accepted', handleCallAccepted);
     socket.on('call_rejected', handleCallRejected);
     socket.on('call_ended', handleCallEnded);
     socket.on('call_failed', handleCallRejected);
+    socket.on('call_switched_to_video', handleCallSwitchedToVideo);
     socket.on('ice_candidate', handleIceCandidate);
     socket.on('group_call_users', handleGroupCallUsers);
     socket.on('user_joined_group_call', handleUserJoinedGroup);
@@ -603,6 +656,7 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
       socket.off('call_rejected', handleCallRejected);
       socket.off('call_ended', handleCallEnded);
       socket.off('call_failed', handleCallRejected);
+      socket.off('call_switched_to_video', handleCallSwitchedToVideo);
       socket.off('ice_candidate', handleIceCandidate);
       socket.off('group_call_users', handleGroupCallUsers);
       socket.off('user_joined_group_call', handleUserJoinedGroup);
