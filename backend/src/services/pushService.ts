@@ -107,7 +107,8 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
           sound: 'default',
           priority: 'high',
           visibility: 'public',
-          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          defaultSound: true,
+          defaultVibrateTimings: true,
         },
       },
       apns: {
