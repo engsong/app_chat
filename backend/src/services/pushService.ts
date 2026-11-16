@@ -32,7 +32,10 @@ function initFirebaseAdmin() {
     // Check possible locations for service account JSON
     const potentialPaths = [
       process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+      path.join(process.cwd(), 'data', 'firebase-service-account.json'),
+      '/app/data/firebase-service-account.json',
       path.join(process.cwd(), 'firebase-service-account.json'),
+      '/app/firebase-service-account.json',
       path.join(process.cwd(), 'backend', 'firebase-service-account.json'),
       path.join(process.cwd(), 'service-account.json'),
     ].filter(Boolean) as string[];
@@ -155,34 +158,56 @@ export async function sendPushToUser(
     requireInteraction: payload.requireInteraction || false,
   });
 
-  const remainingSubs: any[] = [];
-  for (const sub of subs) {
-    try {
-      if (sub.token || sub.type === 'fcm') {
-        const token = sub.token || sub.pushToken;
-        await sendToFcmToken(token, {
-          title: payload.title,
-          body: payload.body,
-          data: payload.data,
-        });
-        remainingSubs.push(sub);
-      } else if (sub.endpoint) {
-        await webpush.sendNotification(sub, pushPayload);
-        remainingSubs.push(sub);
-        console.log(`[Push] Push notification delivered successfully to user ${userId}`);
-      }
-    } catch (err: any) {
-      if (err.statusCode === 404 || err.statusCode === 410) {
-        console.log(`[Push] Subscription expired/unregistered for user ${userId}`);
-      } else {
-        remainingSubs.push(sub);
-        console.warn(`[Push] Push delivery note for user ${userId}:`, err.message);
-      }
+  // Collect all unique FCM tokens from subscriptions AND device registrations
+  const fcmTokens = new Set<string>();
+  const webSubs: any[] = [];
+
+  // 1. From pushSubscriptions
+  for (const s of subs) {
+    if (s.token || s.type === 'fcm') {
+      const tok = s.token || s.pushToken;
+      if (tok) fcmTokens.add(tok);
+    } else if (s.endpoint) {
+      webSubs.push(s);
     }
   }
 
-  if (remainingSubs.length !== subs.length) {
-    store.pushSubscriptions.set(userId, remainingSubs);
-    store.saveToFile();
+  // 2. From registered devices in store
+  for (const dev of store.devices.values()) {
+    if (dev.userId === userId && dev.pushToken) {
+      fcmTokens.add(dev.pushToken);
+    }
+  }
+
+  console.log(`[Push] Dispatching push to user ${userId}: ${fcmTokens.size} native FCM token(s), ${webSubs.length} WebPush endpoint(s)`);
+
+  // Send to all native FCM devices concurrently
+  if (fcmTokens.size > 0) {
+    await Promise.allSettled(
+      Array.from(fcmTokens).map((tok) =>
+        sendToFcmToken(tok, {
+          title: payload.title,
+          body: payload.body,
+          data: payload.data,
+        })
+      )
+    );
+  }
+
+  // Send to WebPush subscriptions with timeout
+  if (webSubs.length > 0) {
+    await Promise.allSettled(
+      webSubs.map(async (ws) => {
+        try {
+          await Promise.race([
+            webpush.sendNotification(ws, pushPayload),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('WebPush timeout')), 4000)),
+          ]);
+          console.log(`[Push] Web push delivered to browser endpoint for user ${userId}`);
+        } catch (err: any) {
+          console.warn(`[Push] Web push notice for user ${userId}:`, err.message || err);
+        }
+      })
+    );
   }
 }

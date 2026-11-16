@@ -41,6 +41,8 @@ services:
       CLIENT_URL: https://chat.on-excapp.app
     volumes:
       - backend_data:/app/data
+      - ./backend/firebase-service-account.json:/app/firebase-service-account.json:ro
+      - ./backend/firebase-service-account.json:/app/data/firebase-service-account.json:ro
     depends_on:
       whatsapp_postgres:
         condition: service_healthy
