@@ -108,8 +108,8 @@ public class IChatFirebaseMessagingService extends MessagingService {
             .setVibrate(new long[]{0, 1000, 500, 1000, 500, 1000})
             .setContentIntent(fullScreenPendingIntent)
             .setFullScreenIntent(fullScreenPendingIntent, true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Decline", declinePendingIntent)
-            .addAction(android.R.drawable.ic_menu_call, "Answer", fullScreenPendingIntent);
+            .addAction(R.drawable.ic_stat_ichat, "Decline", declinePendingIntent)
+            .addAction(R.drawable.ic_stat_ichat, "Answer", fullScreenPendingIntent);
 
         NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (notificationManager != null) {
