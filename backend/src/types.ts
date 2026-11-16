@@ -31,6 +31,7 @@ export interface MessageData {
   metadata?: string;
   status: 'sent' | 'delivered' | 'read';
   createdAt: Date;
+  clientMessageId?: string;
   deletedForUserIds?: string[];
   isDeletedForEveryone?: boolean;
   deletedBy?: string;

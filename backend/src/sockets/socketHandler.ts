@@ -127,10 +127,37 @@ export function saveAndBroadcastMessage(data: {
   type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'product' | 'call';
   mediaUrl?: string;
   metadata?: string;
+  clientMessageId?: string;
 }) {
-  const { chatId, senderId, content, type = 'text', mediaUrl, metadata } = data;
+  const { chatId, senderId, content, type = 'text', mediaUrl, metadata, clientMessageId } = data;
   const chat = store.chats.get(chatId);
   if (!chat) return null;
+
+  // 1. Deduplication check by clientMessageId
+  if (clientMessageId) {
+    const existing = Array.from(store.messages.values()).find(
+      (m) => m.chatId === chatId && m.senderId === senderId && (m.clientMessageId === clientMessageId || m.id === clientMessageId)
+    );
+    if (existing) {
+      console.log(`[Message] Deduplicated message with clientMessageId: ${clientMessageId}`);
+      return existing;
+    }
+  }
+
+  // 2. Deduplication check: prevent identical duplicate message sent within 2.5 seconds
+  const now = Date.now();
+  const recentDuplicate = Array.from(store.messages.values()).find(
+    (m) =>
+      m.chatId === chatId &&
+      m.senderId === senderId &&
+      m.content === content &&
+      m.type === type &&
+      now - new Date(m.createdAt).getTime() < 2500
+  );
+  if (recentDuplicate) {
+    console.log(`[Message] Deduplicated identical message sent within 2.5s for chat ${chatId}`);
+    return recentDuplicate;
+  }
 
   const isRecipientOnline = chat.memberIds.some(
     (mId) => mId !== senderId && userSocketMap.has(mId) && (userSocketMap.get(mId)?.size || 0) > 0
@@ -144,6 +171,7 @@ export function saveAndBroadcastMessage(data: {
     content,
     mediaUrl,
     metadata,
+    clientMessageId,
     status: isRecipientOnline ? 'delivered' : 'sent',
     createdAt: new Date(),
   };

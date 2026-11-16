@@ -16,6 +16,7 @@ interface CallModalProps {
   isScreenSharing: boolean;
   localStreamRef: React.RefObject<MediaStream | null>;
   remoteStreamRef: React.RefObject<MediaStream | null>;
+  remoteStream?: MediaStream | null;
   onAnswer: () => void;
   onReject: () => void;
   onEndCall: () => void;
@@ -37,6 +38,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   isScreenSharing,
   localStreamRef,
   remoteStreamRef,
+  remoteStream,
   onAnswer,
   onReject,
   onEndCall,
@@ -46,19 +48,29 @@ export const CallModal: React.FC<CallModalProps> = ({
 }) => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
-  // Attach local and remote streams to video elements
+  // Attach local and remote streams to video and audio elements
   useEffect(() => {
     if (localVideoRef.current && localStreamRef.current) {
       localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.play().catch(() => {});
     }
   }, [localStreamRef.current, callActive, isCalling, isVideoDisabled]);
 
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStreamRef.current) {
-      remoteVideoRef.current.srcObject = remoteStreamRef.current;
+    const stream = remoteStream || remoteStreamRef.current;
+    if (stream) {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+        remoteVideoRef.current.play().catch((err) => console.warn('[Video] Play note:', err));
+      }
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = stream;
+        remoteAudioRef.current.play().catch((err) => console.warn('[Audio] Play note:', err));
+      }
     }
-  }, [remoteStreamRef.current, callActive]);
+  }, [remoteStream, remoteStreamRef.current, callActive, isVideoCall]);
 
   // Format seconds to mm:ss
   const formatTime = (seconds: number) => {
@@ -134,6 +146,14 @@ export const CallModal: React.FC<CallModalProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Dedicated Audio Element for Voice and Video audio stream playback */}
+        <audio
+          ref={remoteAudioRef}
+          autoPlay
+          playsInline
+          className="hidden"
+        />
 
         {/* Video / Visualizer Area */}
         <div className="relative flex-1 flex items-center justify-center bg-[#0c1317] overflow-hidden">

@@ -211,9 +211,18 @@ export const App: React.FC = () => {
     fetchContacts(currentUser.id);
 
     // Subscribe device to Web Push (FCM) for background lock screen notifications
-    subscribeUserToWebPush(currentUser.id).catch((err) => {
+    subscribeUserToWebPush(currentUser.id, true).catch((err) => {
       console.warn('[Push] Background push registration notice:', err);
     });
+
+    // Auto-request notification on first user tap/click if browser blocked load-time prompt
+    const handleFirstUserInteraction = () => {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        subscribeUserToWebPush(currentUser.id, true).catch(() => {});
+      }
+    };
+    window.addEventListener('pointerdown', handleFirstUserInteraction, { once: true });
+    window.addEventListener('click', handleFirstUserInteraction, { once: true });
 
     const loadUserChats = async () => {
       try {
@@ -246,6 +255,11 @@ export const App: React.FC = () => {
         })
         .catch(() => {});
     }
+
+    return () => {
+      window.removeEventListener('pointerdown', handleFirstUserInteraction);
+      window.removeEventListener('click', handleFirstUserInteraction);
+    };
   }, [socket, currentUser]);
 
   // 4. Load messages for active chat
@@ -283,10 +297,22 @@ export const App: React.FC = () => {
         });
       }
 
-      // Append if in current chat
+      // Append or replace optimistic temp message if in current chat
       if (data.message.chatId === activeChatId) {
         setMessages((prev) => {
           if (prev.some((m) => m.id === data.message.id)) return prev;
+          if (data.message.clientMessageId && prev.some((m) => m.id === data.message.clientMessageId)) {
+            return prev.map((m) => (m.id === data.message.clientMessageId ? data.message : m));
+          }
+          const matchingTemp = prev.find(
+            (m) =>
+              m.id.startsWith('msg-temp-') &&
+              m.senderId === data.message.senderId &&
+              m.content === data.message.content
+          );
+          if (matchingTemp) {
+            return prev.map((m) => (m.id === matchingTemp.id ? data.message : m));
+          }
           return [...prev, data.message];
         });
 
@@ -615,7 +641,7 @@ export const App: React.FC = () => {
     // Optimistically add message so sender on PC sees it immediately
     setMessages((prev) => [...prev, optimisticMsg]);
 
-    // Emit via socket if connected
+    // Primary: Emit via socket if connected
     if (socket && socket.connected) {
       socket.emit('send_message', {
         chatId: activeChatId,
@@ -624,31 +650,33 @@ export const App: React.FC = () => {
         type,
         metadata,
         mediaUrl,
+        clientMessageId: tempId,
       });
-    }
-
-    // Always deliver to server via HTTP POST to guarantee persistence and delivery to mobile
-    try {
-      const res = await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chatId: activeChatId,
-          senderId: currentUser.id,
-          content,
-          type,
-          metadata,
-          mediaUrl,
-        }),
-      });
-      if (res.ok) {
-        const savedMsg = await res.json();
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? savedMsg : m))
-        );
+    } else {
+      // Fallback: Deliver via HTTP POST if socket is currently disconnected
+      try {
+        const res = await fetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chatId: activeChatId,
+            senderId: currentUser.id,
+            content,
+            type,
+            metadata,
+            mediaUrl,
+            clientMessageId: tempId,
+          }),
+        });
+        if (res.ok) {
+          const savedMsg = await res.json();
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? savedMsg : m))
+          );
+        }
+      } catch (err) {
+        console.warn('HTTP fallback message delivery notice:', err);
       }
-    } catch (err) {
-      console.warn('HTTP message delivery notice:', err);
     }
   };
 
@@ -1084,6 +1112,7 @@ export const App: React.FC = () => {
         isScreenSharing={webrtc.isScreenSharing}
         localStreamRef={webrtc.localStreamRef}
         remoteStreamRef={webrtc.remoteStreamRef}
+        remoteStream={webrtc.remoteStream}
         onAnswer={webrtc.answerCall}
         onReject={webrtc.rejectCall}
         onEndCall={webrtc.endCall}

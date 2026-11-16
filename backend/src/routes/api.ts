@@ -553,26 +553,52 @@ apiRouter.post('/chats/group', (req, res) => {
   res.json(enriched);
 });
 
-// Get Messages for a Chat
+// Get Messages for a Chat (with auto-deduplication of any past duplicates)
 apiRouter.get('/chats/:id/messages', (req, res) => {
   const chatId = req.params.id;
   const userId = req.query.userId as string;
-  const messages = Array.from(store.messages.values())
+  const rawMessages = Array.from(store.messages.values())
     .filter((m) => m.chatId === chatId)
     .filter((m) => !m.isDeletedForEveryone)
     .filter((m) => !userId || !m.deletedForUserIds || !m.deletedForUserIds.includes(userId))
-    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
-    .map((m) => {
-      const sender = store.users.get(m.senderId);
-      return { ...m, sender };
-    });
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  // Clean up any historical duplicate messages sent within 2.5s window
+  const uniqueMessages: typeof rawMessages = [];
+  const duplicateIdsToRemove: string[] = [];
+
+  for (const m of rawMessages) {
+    const isDuplicate = uniqueMessages.some(
+      (u) =>
+        u.senderId === m.senderId &&
+        u.content === m.content &&
+        u.type === m.type &&
+        Math.abs(u.createdAt.getTime() - m.createdAt.getTime()) < 2500
+    );
+
+    if (!isDuplicate) {
+      uniqueMessages.push(m);
+    } else {
+      duplicateIdsToRemove.push(m.id);
+    }
+  }
+
+  if (duplicateIdsToRemove.length > 0) {
+    duplicateIdsToRemove.forEach((id) => store.messages.delete(id));
+    store.saveToFile();
+  }
+
+  const messages = uniqueMessages.map((m) => {
+    const sender = store.users.get(m.senderId);
+    return { ...m, sender };
+  });
 
   res.json(messages);
 });
 
 // Send message via HTTP POST (robust fallback ensuring delivery & persistence)
 apiRouter.post('/messages', (req, res) => {
-  const { chatId, senderId, content, type = 'text', mediaUrl, metadata } = req.body;
+  const { chatId, senderId, content, type = 'text', mediaUrl, metadata, clientMessageId } = req.body;
   if (!chatId || !senderId) {
     return res.status(400).json({ error: 'chatId and senderId are required' });
   }
@@ -584,6 +610,7 @@ apiRouter.post('/messages', (req, res) => {
     type,
     mediaUrl,
     metadata,
+    clientMessageId,
   });
 
   if (!msg) {

@@ -8,7 +8,27 @@ const ICE_SERVERS: RTCConfiguration = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+    // Free public TURN relay servers for mobile carrier CGNAT / symmetric NAT traversal
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 export interface IncomingCallInfo {
@@ -43,6 +63,7 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoDisabled, setIsVideoDisabled] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
   // Group Call States
   const [inGroupCall, setInGroupCall] = useState(false);
@@ -53,6 +74,7 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const pendingCandidatesRef = useRef<any[]>([]);
   const groupPeersRef = useRef<Map<string, RTCPeerConnection>>(new Map()); // userId -> RTCPeerConnection
   const groupStreamsRef = useRef<Map<string, MediaStream>>(new Map());     // userId -> MediaStream
   const callPartnerIdRef = useRef<string | null>(null);
@@ -160,6 +182,8 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
 
     remoteStreamRef.current = null;
     callPartnerIdRef.current = null;
+    pendingCandidatesRef.current = [];
+    setRemoteStream(null);
 
     setCallActive(false);
     setIsCalling(false);
@@ -172,6 +196,21 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     setActiveGroupId(null);
     setGroupParticipants([]);
   }, []);
+
+  // Helper to drain queued ICE candidates once remoteDescription is set
+  const drainCandidateQueue = async (pc: RTCPeerConnection) => {
+    while (pendingCandidatesRef.current.length > 0) {
+      const cand = pendingCandidatesRef.current.shift();
+      if (cand) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+          console.log('[WebRTC] Processed queued ICE candidate');
+        } catch (err) {
+          console.warn('[WebRTC] Error adding queued candidate:', err);
+        }
+      }
+    }
+  };
 
   // Start Call Duration Timer
   const startTimer = () => {
@@ -216,10 +255,14 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       pc.ontrack = (event) => {
-        console.log('[WebRTC] Received remote track');
-        if (event.streams && event.streams[0]) {
-          remoteStreamRef.current = event.streams[0];
+        console.log('[WebRTC] Received remote track:', event.track.kind);
+        let stream = event.streams && event.streams[0];
+        if (!stream) {
+          stream = remoteStreamRef.current || new MediaStream();
+          stream.addTrack(event.track);
         }
+        remoteStreamRef.current = stream;
+        setRemoteStream(stream);
       };
 
       pc.onicecandidate = (event) => {
@@ -283,9 +326,14 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
     pc.ontrack = (event) => {
-      if (event.streams && event.streams[0]) {
-        remoteStreamRef.current = event.streams[0];
+      console.log('[WebRTC] Received remote track:', event.track.kind);
+      let rStream = event.streams && event.streams[0];
+      if (!rStream) {
+        rStream = remoteStreamRef.current || new MediaStream();
+        rStream.addTrack(event.track);
       }
+      remoteStreamRef.current = rStream;
+      setRemoteStream(rStream);
     };
 
     pc.onicecandidate = (event) => {
@@ -295,6 +343,7 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     };
 
     await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.signal));
+    await drainCandidateQueue(pc);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
@@ -477,6 +526,7 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
 
       if (peerConnectionRef.current) {
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.signal));
+        await drainCandidateQueue(peerConnectionRef.current);
       }
     };
 
@@ -512,8 +562,12 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     // ICE Candidate
     const handleIceCandidate = async (data: { candidate: any }) => {
       try {
-        if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+        const pc = peerConnectionRef.current;
+        if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } else {
+          console.log('[WebRTC] Buffering ICE candidate until remoteDescription is set');
+          pendingCandidatesRef.current.push(data.candidate);
         }
       } catch (err) {
         console.warn('Error adding ICE candidate:', err);
@@ -569,6 +623,7 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     isScreenSharing,
     localStreamRef,
     remoteStreamRef,
+    remoteStream,
     startCall,
     answerCall,
     rejectCall,

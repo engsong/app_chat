@@ -37,6 +37,7 @@ export interface Message {
   metadata?: string; // JSON with audio duration, file size, or product info
   status: 'sent' | 'delivered' | 'read';
   createdAt: string;
+  clientMessageId?: string;
   sender?: User;
 }
 

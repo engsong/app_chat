@@ -22,7 +22,7 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
   return null;
 }
 
-// Request Notification Permission
+// Request Notification Permission with legacy and modern browser callback fallback
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
   if (typeof window === 'undefined' || !('Notification' in window)) {
     return 'denied';
@@ -33,7 +33,15 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   }
 
   try {
-    const permission = await Notification.requestPermission();
+    let permission: NotificationPermission;
+    const req = Notification.requestPermission();
+    if (req && typeof (req as any).then === 'function') {
+      permission = await req;
+    } else {
+      permission = await new Promise<NotificationPermission>((resolve) => {
+        Notification.requestPermission((p) => resolve(p));
+      });
+    }
     console.log('[Notification] Permission result:', permission);
     return permission;
   } catch (err) {
@@ -63,7 +71,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 // Subscribe user device to background Web Push protocol (wakes device on lock screen)
-export async function subscribeUserToWebPush(userId: string, allowPrompt: boolean = false): Promise<boolean> {
+export async function subscribeUserToWebPush(userId: string, allowPrompt: boolean = true): Promise<boolean> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
     return false;
   }
@@ -89,20 +97,33 @@ export async function subscribeUserToWebPush(userId: string, allowPrompt: boolea
 
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
-      sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
+      try {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+      } catch (subErr) {
+        console.warn('[Push] Direct subscribe failed, resetting old subscription:', subErr);
+        const oldSub = await reg.pushManager.getSubscription();
+        if (oldSub) await oldSub.unsubscribe().catch(() => {});
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+      }
     }
 
     if (sub) {
-      await fetch('/api/push/subscribe', {
+      const subJson = sub.toJSON ? sub.toJSON() : JSON.parse(JSON.stringify(sub));
+      const saveRes = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, subscription: sub }),
+        body: JSON.stringify({ userId, subscription: subJson }),
       });
-      console.log('[Notification] Subscribed user to Web Push successfully');
-      return true;
+      if (saveRes.ok) {
+        console.log('[Notification] Subscribed user to Web Push successfully');
+        return true;
+      }
     }
   } catch (err) {
     console.warn('[Notification] Failed to subscribe to Web Push:', err);
