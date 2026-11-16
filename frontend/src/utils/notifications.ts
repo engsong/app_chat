@@ -79,37 +79,71 @@ export async function subscribeUserToWebPush(userId: string, allowPrompt: boolea
   // 1. If running as Native Mobile App (Capacitor Android APK) -> Use Native Firebase FCM!
   if (Capacitor.isNativePlatform()) {
     try {
+      // 1. Remove old listeners
+      await PushNotifications.removeAllListeners();
+
+      // 2. Register listeners FIRST so no events are lost
+      await PushNotifications.addListener('registration', async (token) => {
+        console.log('[FCM] Native device token registered successfully:', token.value);
+        try {
+          await fetch('/api/devices/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId,
+              pushToken: token.value,
+              platform: Capacitor.getPlatform(),
+              provider: 'FCM',
+            }),
+          });
+          console.log('[FCM] Device token saved to server');
+        } catch (e) {
+          console.warn('[FCM] Error saving token to server:', e);
+        }
+      });
+
+      await PushNotifications.addListener('registrationError', (err) => {
+        console.error('[FCM] Native registration error:', err);
+      });
+
+      await PushNotifications.addListener('pushNotificationReceived', (notification) => {
+        console.log('[FCM] Push notification received in foreground/background:', notification);
+      });
+
+      await PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+        console.log('[FCM] Push notification tapped by user:', notification);
+        const data = notification.notification?.data;
+        if (data?.chatId && typeof window !== 'undefined') {
+          window.location.hash = `#/chat/${data.chatId}`;
+        }
+      });
+
+      // 3. Check and request notification permissions
       let permStatus = await PushNotifications.checkPermissions();
       if (permStatus.receive === 'prompt' && allowPrompt) {
         permStatus = await PushNotifications.requestPermissions();
       }
 
       if (permStatus.receive === 'granted') {
+        // 4. Create high-importance Android notification channel for calls & messages
+        try {
+          await PushNotifications.createChannel({
+            id: 'ichat_notifications',
+            name: 'IChat Notifications',
+            description: 'Calls and instant messages',
+            importance: 5, // High importance (plays sound and pops up)
+            visibility: 1, // Public (shows on lock screen)
+            vibration: true,
+            sound: 'default',
+            lights: true,
+            lightColor: '#25D366',
+          });
+        } catch (chErr) {
+          console.warn('[FCM] Channel creation note:', chErr);
+        }
+
+        // 5. Register with FCM/APNs to retrieve native token
         await PushNotifications.register();
-        PushNotifications.removeAllListeners();
-
-        PushNotifications.addListener('registration', async (token) => {
-          console.log('[FCM] Native device token registered:', token.value);
-          try {
-            await fetch('/api/devices/register', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                userId,
-                pushToken: token.value,
-                platform: Capacitor.getPlatform(),
-                provider: 'FCM',
-              }),
-            });
-          } catch (e) {
-            console.warn('[FCM] Error saving token to server:', e);
-          }
-        });
-
-        PushNotifications.addListener('registrationError', (err) => {
-          console.warn('[FCM] Registration error:', err);
-        });
-
         return true;
       }
     } catch (e) {

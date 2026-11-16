@@ -16,31 +16,113 @@ try {
   console.warn('[Push] Error initializing VAPID details:', err);
 }
 
-// Send native push to FCM token
-async function sendToFcmToken(token: string, payload: { title: string; body: string; data?: any }) {
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getMessaging, Message } from 'firebase-admin/messaging';
+import fs from 'fs';
+import path from 'path';
+
+let firebaseInitialized = false;
+
+function initFirebaseAdmin() {
+  if (firebaseInitialized || getApps().length > 0) {
+    firebaseInitialized = true;
+    return true;
+  }
   try {
-    const serverKey = process.env.FCM_SERVER_KEY || 'AIzaSyA1PRAtnw6sI6X54UlskmOwk941O931EQA';
-    const res = await fetch('https://fcm.googleapis.com/fcm/send', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `key=${serverKey}`,
+    // Check possible locations for service account JSON
+    const potentialPaths = [
+      process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+      path.join(process.cwd(), 'firebase-service-account.json'),
+      path.join(process.cwd(), 'backend', 'firebase-service-account.json'),
+      path.join(process.cwd(), 'service-account.json'),
+    ].filter(Boolean) as string[];
+
+    for (const p of potentialPaths) {
+      if (fs.existsSync(p)) {
+        const serviceAccount = JSON.parse(fs.readFileSync(p, 'utf8'));
+        initializeApp({
+          credential: cert(serviceAccount),
+        });
+        firebaseInitialized = true;
+        console.log(`[FCM] Firebase Admin SDK initialized successfully with key file: ${p}`);
+        return true;
+      }
+    }
+
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+      initializeApp({
+        credential: cert(serviceAccount),
+      });
+      firebaseInitialized = true;
+      console.log('[FCM] Firebase Admin SDK initialized successfully with environment variable');
+      return true;
+    }
+
+    console.warn('[FCM] Notice: firebase-service-account.json not found. Native push notifications require Firebase Admin Service Account key.');
+    return false;
+  } catch (err: any) {
+    console.warn('[FCM] Error initializing Firebase Admin SDK:', err.message || err);
+    return false;
+  }
+}
+
+// Automatically try initializing at startup
+initFirebaseAdmin();
+
+// Send native push to FCM device token via modern Firebase Admin SDK
+async function sendToFcmToken(token: string, payload: { title: string; body: string; data?: any }) {
+  if (!firebaseInitialized) {
+    initFirebaseAdmin();
+  }
+
+  if (!firebaseInitialized) {
+    console.warn(`[FCM] Cannot deliver push: Firebase Admin is not initialized. Please place firebase-service-account.json in the backend directory.`);
+    return false;
+  }
+
+  try {
+    // Convert all data dictionary values to strings as required by FCM HTTP v1 / Firebase Admin
+    const stringifiedData: Record<string, string> = {};
+    if (payload.data && typeof payload.data === 'object') {
+      Object.entries(payload.data).forEach(([k, v]) => {
+        stringifiedData[k] = typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
+      });
+    }
+
+    const message: Message = {
+      token,
+      notification: {
+        title: payload.title,
+        body: payload.body,
       },
-      body: JSON.stringify({
-        to: token,
+      data: stringifiedData,
+      android: {
         priority: 'high',
         notification: {
-          title: payload.title,
-          body: payload.body,
+          channelId: 'ichat_notifications',
           sound: 'default',
+          priority: 'high',
+          visibility: 'public',
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
         },
-        data: payload.data || {},
-      }),
-    });
-    console.log(`[FCM] Sent native push notification to device token, status: ${res.status}`);
-    return res.ok;
-  } catch (err) {
-    console.warn('[FCM] Error sending native push notification:', err);
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+            contentAvailable: true,
+          },
+        },
+      },
+    };
+
+    const response = await getMessaging().send(message);
+    console.log(`[FCM] High-priority native push sent successfully via Firebase Admin, messageId: ${response}`);
+    return true;
+  } catch (err: any) {
+    console.warn(`[FCM] Error sending push to token ${token.substring(0, 12)}...:`, err.message || err);
     return false;
   }
 }
