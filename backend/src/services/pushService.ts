@@ -93,6 +93,9 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
       });
     }
 
+    const isCall = payload.data?.type === 'call' || payload.title?.toLowerCase().includes('call');
+    const channelId = isCall ? 'ichat_call_notifications' : 'ichat_notifications';
+
     const message: Message = {
       token,
       notification: {
@@ -103,7 +106,9 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
       android: {
         priority: 'high',
         notification: {
-          channelId: 'ichat_notifications',
+          channelId,
+          icon: 'ic_stat_ichat',
+          color: '#25D366',
           sound: 'default',
           priority: 'max',
           visibility: 'public',
