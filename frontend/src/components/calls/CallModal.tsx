@@ -79,46 +79,97 @@ export const CallModal: React.FC<CallModalProps> = ({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // 1. Incoming Call Dialog (WhatsApp style toast/modal)
+  // 1. Incoming Call Screen (Full Screen WhatsApp Style)
   if (incomingCall && !callActive) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in">
-        <div className="bg-[#202c33] border border-[#2a3942] rounded-2xl p-6 w-96 shadow-2xl flex flex-col items-center text-center animate-scale-up">
-          <div className="relative mb-4">
+      <div className="fixed inset-0 z-[100] flex flex-col justify-between bg-[#0b141a] text-white overflow-hidden select-none animate-fade-in">
+        {/* Background Caller Photo (Blurred Backdrop) */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <img
+            src={getAvatarUrl(incomingCall.callerAvatar)}
+            alt=""
+            className="w-full h-full object-cover filter blur-3xl scale-150 opacity-25"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#0b141a]/85 via-[#0b141a]/90 to-black/95" />
+        </div>
+
+        {/* Top Header Section */}
+        <div className="relative z-10 flex flex-col items-center pt-12 sm:pt-16 px-6 text-center">
+          <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2">
+            <svg className="w-3.5 h-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <span className="tracking-wide">End-to-end encrypted</span>
+          </div>
+          <h4 className="text-sm font-semibold tracking-wider text-gray-300 uppercase">
+            IChat {incomingCall.isVideo ? 'Video Call' : 'Voice Call'}
+          </h4>
+        </div>
+
+        {/* Center Caller Profile & Pulsing Rings */}
+        <div className="relative z-10 flex flex-col items-center justify-center my-auto px-6 text-center">
+          <div className="relative mb-8">
+            {/* Concentric Animated Pulse Rings */}
+            <div className="absolute -inset-4 rounded-full bg-[#00a884]/20 animate-ping opacity-60" />
+            <div className="absolute -inset-8 rounded-full border border-[#00a884]/30 animate-pulse" />
+            
             <img
               src={getAvatarUrl(incomingCall.callerAvatar)}
               alt={incomingCall.callerName}
-              className="w-24 h-24 rounded-full object-cover ring-4 ring-[#00a884] ring-offset-4 ring-offset-[#202c33] animate-pulse"
+              className="relative w-36 h-36 sm:w-44 sm:h-44 rounded-full object-cover shadow-2xl ring-4 ring-[#00a884]/50"
             />
-            <span className="absolute bottom-0 right-0 p-2 bg-[#00a884] rounded-full text-white">
-              {incomingCall.isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />}
-            </span>
+            
+            <div className="absolute bottom-1 right-2 p-3 bg-[#00a884] rounded-full text-white shadow-xl shadow-[#00a884]/40">
+              {incomingCall.isVideo ? <Video className="w-6 h-6" /> : <Phone className="w-6 h-6" />}
+            </div>
           </div>
 
-          <h3 className="text-xl font-semibold text-white mb-1">{incomingCall.callerName}</h3>
-          <p className="text-sm text-[#00a884] font-medium mb-6">
-            Incoming IChat {incomingCall.isVideo ? 'Video' : 'Voice'} Call...
+          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-2 tracking-wide drop-shadow-md">
+            {incomingCall.callerName}
+          </h2>
+          <p className="text-base text-[#00a884] font-medium flex items-center gap-2 drop-shadow">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#00a884] animate-ping" />
+            Incoming {incomingCall.isVideo ? 'Video' : 'Voice'} Call...
           </p>
+        </div>
 
-          <div className="flex items-center justify-center gap-8 w-full mt-2">
+        {/* Bottom Section - Full WhatsApp Style Accept & Decline Actions */}
+        <div className="relative z-10 flex flex-col items-center pb-12 sm:pb-16 px-8">
+          {/* Swipe indicator animation */}
+          <div className="flex flex-col items-center mb-8 text-gray-400/90 animate-bounce cursor-pointer" onClick={onAnswer}>
+            <svg className="w-6 h-6 text-[#00a884]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 15l7-7 7 7"/>
+            </svg>
+            <span className="text-xs font-medium tracking-widest uppercase text-gray-300">Swipe up or tap to answer</span>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center justify-around w-full max-w-xs sm:max-w-sm">
+            {/* Decline Button */}
             <button
               onClick={onReject}
-              className="flex flex-col items-center gap-1 group"
+              className="flex flex-col items-center gap-2 group active:scale-90 transition-transform"
             >
-              <div className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center text-white transition-all shadow-lg shadow-red-600/30">
-                <PhoneOff className="w-6 h-6" />
+              <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center text-white shadow-2xl shadow-red-600/50 transition-all">
+                <PhoneOff className="w-8 h-8 sm:w-9 sm:h-9" />
               </div>
-              <span className="text-xs text-gray-400 group-hover:text-white">Decline</span>
+              <span className="text-sm font-medium text-gray-300 group-hover:text-white">Decline</span>
             </button>
 
+            {/* Accept Button */}
             <button
               onClick={onAnswer}
-              className="flex flex-col items-center gap-1 group"
+              className="flex flex-col items-center gap-2 group active:scale-90 transition-transform"
             >
-              <div className="w-14 h-14 rounded-full bg-[#00a884] hover:bg-[#008f6f] flex items-center justify-center text-white transition-all shadow-lg shadow-[#00a884]/30 animate-bounce">
-                {incomingCall.isVideo ? <Video className="w-6 h-6" /> : <Phone className="w-6 h-6" />}
+              <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-full bg-[#00a884] hover:bg-[#008f6f] flex items-center justify-center text-white shadow-2xl shadow-[#00a884]/60 transition-all animate-pulse">
+                {incomingCall.isVideo ? (
+                  <Video className="w-8 h-8 sm:w-9 sm:h-9" />
+                ) : (
+                  <Phone className="w-8 h-8 sm:w-9 sm:h-9" />
+                )}
               </div>
-              <span className="text-xs text-gray-400 group-hover:text-white">Accept</span>
+              <span className="text-sm font-medium text-gray-300 group-hover:text-white">Accept</span>
             </button>
           </div>
         </div>
