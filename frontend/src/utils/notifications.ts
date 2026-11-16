@@ -1,6 +1,8 @@
 /**
  * Browser & Service Worker Notification Utility for IChat
  */
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 
 let swRegistration: ServiceWorkerRegistration | null = null;
 let activeCallNotification: Notification | null = null;
@@ -70,9 +72,54 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
-// Subscribe user device to background Web Push protocol (wakes device on lock screen)
+// Subscribe user device to background push notifications (Native FCM on mobile APK, Web Push in browser)
 export async function subscribeUserToWebPush(userId: string, allowPrompt: boolean = true): Promise<boolean> {
-  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+  if (typeof window === 'undefined') return false;
+
+  // 1. If running as Native Mobile App (Capacitor Android APK) -> Use Native Firebase FCM!
+  if (Capacitor.isNativePlatform()) {
+    try {
+      let permStatus = await PushNotifications.checkPermissions();
+      if (permStatus.receive === 'prompt' && allowPrompt) {
+        permStatus = await PushNotifications.requestPermissions();
+      }
+
+      if (permStatus.receive === 'granted') {
+        await PushNotifications.register();
+        PushNotifications.removeAllListeners();
+
+        PushNotifications.addListener('registration', async (token) => {
+          console.log('[FCM] Native device token registered:', token.value);
+          try {
+            await fetch('/api/devices/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId,
+                pushToken: token.value,
+                platform: Capacitor.getPlatform(),
+                provider: 'FCM',
+              }),
+            });
+          } catch (e) {
+            console.warn('[FCM] Error saving token to server:', e);
+          }
+        });
+
+        PushNotifications.addListener('registrationError', (err) => {
+          console.warn('[FCM] Registration error:', err);
+        });
+
+        return true;
+      }
+    } catch (e) {
+      console.warn('[FCM] Native push registration error:', e);
+    }
+    return false;
+  }
+
+  // 2. If running in Web Browser -> Use Service Worker Web Push
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     return false;
   }
 

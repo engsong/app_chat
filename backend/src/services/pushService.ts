@@ -16,6 +16,35 @@ try {
   console.warn('[Push] Error initializing VAPID details:', err);
 }
 
+// Send native push to FCM token
+async function sendToFcmToken(token: string, payload: { title: string; body: string; data?: any }) {
+  try {
+    const serverKey = process.env.FCM_SERVER_KEY || 'AIzaSyA1PRAtnw6sI6X54UlskmOwk941O931EQA';
+    const res = await fetch('https://fcm.googleapis.com/fcm/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `key=${serverKey}`,
+      },
+      body: JSON.stringify({
+        to: token,
+        priority: 'high',
+        notification: {
+          title: payload.title,
+          body: payload.body,
+          sound: 'default',
+        },
+        data: payload.data || {},
+      }),
+    });
+    console.log(`[FCM] Sent native push notification to device token, status: ${res.status}`);
+    return res.ok;
+  } catch (err) {
+    console.warn('[FCM] Error sending native push notification:', err);
+    return false;
+  }
+}
+
 export async function sendPushToUser(
   userId: string,
   payload: {
@@ -47,9 +76,19 @@ export async function sendPushToUser(
   const remainingSubs: any[] = [];
   for (const sub of subs) {
     try {
-      await webpush.sendNotification(sub, pushPayload);
-      remainingSubs.push(sub);
-      console.log(`[Push] Push notification delivered successfully to user ${userId}`);
+      if (sub.token || sub.type === 'fcm') {
+        const token = sub.token || sub.pushToken;
+        await sendToFcmToken(token, {
+          title: payload.title,
+          body: payload.body,
+          data: payload.data,
+        });
+        remainingSubs.push(sub);
+      } else if (sub.endpoint) {
+        await webpush.sendNotification(sub, pushPayload);
+        remainingSubs.push(sub);
+        console.log(`[Push] Push notification delivered successfully to user ${userId}`);
+      }
     } catch (err: any) {
       if (err.statusCode === 404 || err.statusCode === 410) {
         console.log(`[Push] Subscription expired/unregistered for user ${userId}`);

@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "67636010166",
+    "project_id": "ichat-f408f",
+    "storage_bucket": "ichat-f408f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:67636010166:android:c83ccd68828e31de9f9a17",
+        "android_client_info": {
+          "package_name": "ichat.onexcapp.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1PRAtnw6sI6X54UlskmOwk941O931EQA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:67636010166:android:c83ccd68828e31de9f9a17",
+        "android_client_info": {
+          "package_name": "app.onexcapp.ichat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1PRAtnw6sI6X54UlskmOwk941O931EQA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -37,6 +37,37 @@ apiRouter.post('/push/subscribe', (req, res) => {
   res.json({ success: true, count: filtered.length });
 });
 
+// Register native device push token (Android FCM / iOS APNs)
+apiRouter.post('/devices/register', (req, res) => {
+  const { userId, pushToken, platform = 'ANDROID', provider = 'FCM' } = req.body;
+  if (!userId || !pushToken) {
+    return res.status(400).json({ error: 'userId and pushToken required' });
+  }
+
+  const deviceId = `dev-${userId}-${platform.toLowerCase()}`;
+  store.devices.set(deviceId, {
+    id: deviceId,
+    userId,
+    pushToken,
+    platform: platform.toUpperCase(),
+    provider: provider.toUpperCase(),
+    updatedAt: new Date(),
+  });
+
+  const existing = store.pushSubscriptions.get(userId) || [];
+  const filtered = existing.filter((s: any) => s.token !== pushToken && s.endpoint !== pushToken);
+  filtered.push({
+    type: 'fcm',
+    token: pushToken,
+    platform,
+  });
+  store.pushSubscriptions.set(userId, filtered);
+  store.saveToFile();
+
+  console.log(`[Push] Registered native ${provider} device for user ${userId}`);
+  res.json({ success: true, deviceId });
+});
+
 // Test push notification endpoint (trigger immediately to verify lock screen delivery)
 apiRouter.post('/push/test', async (req, res) => {
   const userId = (req.body?.userId || req.query?.userId) as string;
