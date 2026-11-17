@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { PhoneOff, Mic, MicOff, Video, VideoOff, Users } from 'lucide-react';
 import { GroupParticipantInfo } from '../../hooks/useWebRTC.js';
 
@@ -11,10 +11,77 @@ interface GroupCallModalProps {
   isMuted: boolean;
   isVideoDisabled: boolean;
   localStreamRef: React.RefObject<MediaStream | null>;
+  remoteStreams?: Map<string, MediaStream>;
   onToggleMute: () => void;
   onToggleVideo: () => void;
   onLeaveCall: () => void;
 }
+
+const RemoteParticipantTile: React.FC<{
+  participant: GroupParticipantInfo;
+  stream?: MediaStream;
+}> = ({ participant, stream }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [hasVideoTrack, setHasVideoTrack] = useState(false);
+
+  useEffect(() => {
+    if (stream) {
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      if (audioRef.current) {
+        audioRef.current.srcObject = stream;
+        audioRef.current.play().catch((err) => console.warn('[RemoteParticipant] Autoplay audio note:', err));
+      }
+
+      const evaluateTracks = () => {
+        const vTracks = stream.getVideoTracks();
+        setHasVideoTrack(vTracks.length > 0 && vTracks.some((t) => t.enabled));
+      };
+
+      evaluateTracks();
+      stream.onaddtrack = evaluateTracks;
+      stream.onremovetrack = evaluateTracks;
+    }
+  }, [stream]);
+
+  const showVideo = (participant.isVideo || hasVideoTrack) && stream && hasVideoTrack;
+
+  return (
+    <div className="relative rounded-2xl overflow-hidden bg-[#202c33] border border-[#2a3942] flex items-center justify-center min-h-[180px] shadow-lg">
+      {/* Hidden audio element for remote stream playback */}
+      <audio ref={audioRef} autoPlay playsInline />
+
+      {showVideo ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <div className="flex flex-col items-center">
+          <img
+            src={participant.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+            alt={participant.name}
+            className="w-20 h-20 rounded-full object-cover mb-2 ring-2 ring-[#00a884]/40"
+          />
+          <span className="text-sm font-semibold">{participant.name}</span>
+        </div>
+      )}
+
+      <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs flex items-center gap-2">
+        <span>{participant.name}</span>
+        {participant.isVideo || hasVideoTrack ? (
+          <Video className="w-3.5 h-3.5 text-[#00a884]" />
+        ) : (
+          <Mic className="w-3.5 h-3.5 text-[#00a884]" />
+        )}
+      </div>
+    </div>
+  );
+};
 
 export const GroupCallModal: React.FC<GroupCallModalProps> = ({
   groupName,
@@ -23,6 +90,7 @@ export const GroupCallModal: React.FC<GroupCallModalProps> = ({
   isMuted,
   isVideoDisabled,
   localStreamRef,
+  remoteStreams,
   onToggleMute,
   onToggleVideo,
   onLeaveCall,
@@ -82,29 +150,17 @@ export const GroupCallModal: React.FC<GroupCallModalProps> = ({
 
         {/* Remote Participants */}
         {participants.map((p) => (
-          <div
+          <RemoteParticipantTile
             key={p.userId}
-            className="relative rounded-2xl overflow-hidden bg-[#202c33] border border-[#2a3942] flex items-center justify-center min-h-[180px] shadow-lg"
-          >
-            <div className="flex flex-col items-center">
-              <img
-                src={p.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
-                alt={p.name}
-                className="w-20 h-20 rounded-full object-cover mb-2 ring-2 ring-[#00a884]/40"
-              />
-              <span className="text-sm font-semibold">{p.name}</span>
-            </div>
-
-            <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs flex items-center gap-2">
-              <span>{p.name}</span>
-              <Mic className="w-3.5 h-3.5 text-green-400" />
-            </div>
-          </div>
+            participant={p}
+            stream={remoteStreams?.get(p.userId)}
+          />
         ))}
       </div>
 
       {/* Control Bar */}
       <div className="py-6 px-8 bg-gradient-to-t from-black/90 to-transparent flex items-center justify-center gap-6 z-10">
+        {/* Toggle Microphone */}
         <button
           onClick={onToggleMute}
           className={`w-13 h-13 p-3.5 rounded-full transition-all ${
@@ -115,18 +171,20 @@ export const GroupCallModal: React.FC<GroupCallModalProps> = ({
           {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
         </button>
 
-        {isVideoCall && (
-          <button
-            onClick={onToggleVideo}
-            className={`w-13 h-13 p-3.5 rounded-full transition-all ${
-              isVideoDisabled ? 'bg-red-600 text-white' : 'bg-[#202c33] hover:bg-[#2a3942] text-white'
-            }`}
-            title={isVideoDisabled ? 'Camera On' : 'Camera Off'}
-          >
-            {isVideoDisabled ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
-          </button>
-        )}
+        {/* Camera / Video Button (ALWAYS available: switches voice call to video call, or toggles camera) */}
+        <button
+          onClick={onToggleVideo}
+          className={`w-13 h-13 p-3.5 rounded-full transition-all ${
+            !isVideoCall || isVideoDisabled
+              ? 'bg-red-600/80 hover:bg-red-600 text-white'
+              : 'bg-[#00a884] hover:bg-[#008f6f] text-white'
+          }`}
+          title={!isVideoCall ? 'Switch to Video Call' : isVideoDisabled ? 'Turn Camera On' : 'Turn Camera Off'}
+        >
+          {!isVideoCall || isVideoDisabled ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
+        </button>
 
+        {/* Leave Call */}
         <button
           onClick={onLeaveCall}
           className="w-14 h-14 p-4 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-xl shadow-red-600/40"

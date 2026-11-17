@@ -176,7 +176,38 @@ export const App: React.FC = () => {
   currentUserRef.current = currentUser;
 
   // Initialize WebRTC Calling Hook
-  const webrtc = useWebRTC(socket, currentUser?.id || null);
+  const webrtc = useWebRTC(socket, currentUser?.id || null, currentUser);
+
+  // Listen for native Android IncomingCallActivity accept event
+  useEffect(() => {
+    const handleNativeCallEvent = (event: any) => {
+      const detail = event.detail;
+      if (!detail) return;
+      console.log('[NativeCallEvent] Received:', detail);
+
+      if (detail.autoAccept) {
+        if (detail.isGroup && detail.chatId) {
+          if (currentUserRef.current) {
+            webrtc.joinGroupCall(
+              detail.chatId,
+              currentUserRef.current,
+              !!detail.isVideo
+            );
+          }
+        } else {
+          (window as any).__autoAcceptPendingCall = true;
+          if (webrtc.incomingCall) {
+            webrtc.answerCall();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('native_call_event', handleNativeCallEvent);
+    return () => {
+      window.removeEventListener('native_call_event', handleNativeCallEvent);
+    };
+  }, [webrtc]);
 
   // 1. Initialize Socket.io connection with automatic background reconnection, keep-alive & notifications
   useEffect(() => {
@@ -1240,13 +1271,18 @@ export const App: React.FC = () => {
       {webrtc.inGroupCall && (
         <GroupCallModal
           groupId={webrtc.activeGroupId || ''}
-          groupName={activeChat?.name || 'Group Call'}
+          groupName={
+            chats.find((c) => c.id === webrtc.activeGroupId)?.name ||
+            activeChat?.name ||
+            'Group Call'
+          }
           isVideoCall={webrtc.isVideoCall}
           participants={webrtc.groupParticipants}
           currentUserId={currentUser.id}
           isMuted={webrtc.isMuted}
           isVideoDisabled={webrtc.isVideoDisabled}
           localStreamRef={webrtc.localStreamRef}
+          remoteStreams={webrtc.groupRemoteStreams}
           onToggleMute={webrtc.toggleMute}
           onToggleVideo={webrtc.toggleVideo}
           onLeaveCall={webrtc.leaveGroupCall}

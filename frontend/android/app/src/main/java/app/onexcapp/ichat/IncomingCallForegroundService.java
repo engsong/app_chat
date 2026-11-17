@@ -75,7 +75,11 @@ public class IncomingCallForegroundService extends Service {
         fullScreenIntent.putExtra("from", from);
         fullScreenIntent.putExtra("callerName", callerName);
         fullScreenIntent.putExtra("callerAvatar", callerAvatar);
+        String chatId = intent.getStringExtra("chatId");
+        String isGroup = intent.getStringExtra("isGroup");
         fullScreenIntent.putExtra("isVideo", String.valueOf(isVideo));
+        fullScreenIntent.putExtra("chatId", chatId);
+        fullScreenIntent.putExtra("isGroup", isGroup);
 
         int pFlags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

@@ -42,6 +42,8 @@ public class IncomingCallActivity extends Activity {
     private String callerName;
     private String callerAvatar;
     private boolean isVideo;
+    private String chatId;
+    private boolean isGroup;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,6 +62,8 @@ public class IncomingCallActivity extends Activity {
             callerName = intent.getStringExtra("callerName");
             callerAvatar = intent.getStringExtra("callerAvatar");
             isVideo = "true".equalsIgnoreCase(intent.getStringExtra("isVideo"));
+            chatId = intent.getStringExtra("chatId");
+            isGroup = "true".equalsIgnoreCase(intent.getStringExtra("isGroup"));
         }
 
         TextView tvCallHeader = findViewById(R.id.tv_call_header);
@@ -71,15 +75,23 @@ public class IncomingCallActivity extends Activity {
         ImageButton btnAccept = findViewById(R.id.btn_accept_call);
         View llSwipeAnswer = findViewById(R.id.ll_swipe_answer);
 
-        tvCallHeader.setText(isVideo ? "ICHAT VIDEO CALL" : "ICHAT VOICE CALL");
+        if (isGroup) {
+            tvCallHeader.setText(isVideo ? "ICHAT GROUP VIDEO CALL" : "ICHAT GROUP VOICE CALL");
+        } else {
+            tvCallHeader.setText(isVideo ? "ICHAT VIDEO CALL" : "ICHAT VOICE CALL");
+        }
 
         if (callerName != null && !callerName.isEmpty()) {
             tvCallerName.setText(callerName);
         } else {
-            tvCallerName.setText("IChat User");
+            tvCallerName.setText(isGroup ? "Group Call" : "IChat User");
         }
 
-        tvCallType.setText(isVideo ? "Incoming Video Call..." : "Incoming Voice Call...");
+        if (isGroup) {
+            tvCallType.setText(isVideo ? "Incoming Group Video Call..." : "Incoming Group Voice Call...");
+        } else {
+            tvCallType.setText(isVideo ? "Incoming Video Call..." : "Incoming Voice Call...");
+        }
 
         // Load caller avatar async from URL
         loadCallerAvatar(callerAvatar, ivCallerAvatar, ivBlurredBackdrop);
@@ -307,6 +319,8 @@ public class IncomingCallActivity extends Activity {
         mainIntent.putExtra("callerName", callerName);
         mainIntent.putExtra("callerAvatar", callerAvatar);
         mainIntent.putExtra("isVideo", String.valueOf(isVideo));
+        mainIntent.putExtra("chatId", chatId);
+        mainIntent.putExtra("isGroup", isGroup ? "true" : "false");
 
         startActivity(mainIntent);
         finish();

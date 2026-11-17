@@ -32,12 +32,14 @@ const ICE_SERVERS: RTCConfiguration = {
 };
 
 export interface IncomingCallInfo {
-  signal: any;
+  signal?: any;
   from: string;
   callerName: string;
   callerAvatar?: string;
   isVideo: boolean;
   chatId?: string;
+  isGroup?: boolean;
+  groupName?: string;
 }
 
 export interface GroupParticipantInfo {
@@ -49,7 +51,11 @@ export interface GroupParticipantInfo {
   stream?: MediaStream;
 }
 
-export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
+export function useWebRTC(
+  socket: Socket | null,
+  currentUserId: string | null,
+  currentUser?: { id: string; name: string; avatar?: string } | null
+) {
   // 1-on-1 Call States
   const [callActive, setCallActive] = useState(false);
   const [isCalling, setIsCalling] = useState(false); // Outgoing ringing
@@ -69,12 +75,14 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
   const [inGroupCall, setInGroupCall] = useState(false);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [groupParticipants, setGroupParticipants] = useState<GroupParticipantInfo[]>([]);
+  const [groupRemoteStreams, setGroupRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
 
   // Refs
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidatesRef = useRef<any[]>([]);
+  const pendingGroupCandidatesRef = useRef<Map<string, any[]>>(new Map());
   const groupPeersRef = useRef<Map<string, RTCPeerConnection>>(new Map()); // userId -> RTCPeerConnection
   const groupStreamsRef = useRef<Map<string, MediaStream>>(new Map());     // userId -> MediaStream
   const callPartnerIdRef = useRef<string | null>(null);
@@ -171,9 +179,15 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     }
 
     // Close group peers
-    groupPeersRef.current.forEach((pc) => pc.close());
+    groupPeersRef.current.forEach((pc) => {
+      try {
+        pc.close();
+      } catch (_) {}
+    });
     groupPeersRef.current.clear();
     groupStreamsRef.current.clear();
+    pendingGroupCandidatesRef.current.clear();
+    setGroupRemoteStreams(new Map());
 
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -312,6 +326,19 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     soundEffects.stopRingtone();
     soundEffects.playConnectTone();
 
+    // If incoming call is a Group Call:
+    if (incomingCall.isGroup && incomingCall.chatId) {
+      const gid = incomingCall.chatId;
+      const vid = incomingCall.isVideo;
+      setIncomingCall(null);
+      await joinGroupCall(
+        gid,
+        currentUser || { id: currentUserId || '', name: 'Me' },
+        vid
+      );
+      return;
+    }
+
     const video = incomingCall.isVideo;
     setIsVideoCall(video);
     callPartnerIdRef.current = incomingCall.from;
@@ -425,11 +452,38 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
             }
           }
 
+          // If in Group Call:
+          if (inGroupCall) {
+            for (const [targetUid, pc] of groupPeersRef.current.entries()) {
+              try {
+                const senders = pc.getSenders();
+                const videoSender = senders.find((s) => s.track && s.track.kind === 'video');
+                if (videoSender) {
+                  await videoSender.replaceTrack(videoTrack);
+                } else {
+                  pc.addTrack(videoTrack, localStreamRef.current!);
+                  const offer = await pc.createOffer();
+                  await pc.setLocalDescription(offer);
+                  if (socket && currentUserId) {
+                    socket.emit('group_call_signal', {
+                      userToSignal: targetUid,
+                      callerId: currentUserId,
+                      signal: offer,
+                    });
+                  }
+                }
+              } catch (_) {}
+            }
+            if (socket && activeGroupId) {
+              socket.emit('switch_group_call_to_video', { groupId: activeGroupId, isVideo: true });
+            }
+          }
+
           setIsVideoCall(true);
           setIsVideoDisabled(false);
 
-          // Notify remote peer to switch to video UI
-          if (socket && callPartnerIdRef.current) {
+          // Notify remote peer to switch to video UI (1-on-1 call)
+          if (!inGroupCall && socket && callPartnerIdRef.current) {
             socket.emit('switch_call_to_video', { to: callPartnerIdRef.current, isVideo: true });
           }
         }
@@ -437,6 +491,9 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
         // Toggle camera on/off
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoDisabled(!videoTrack.enabled);
+        if (inGroupCall && socket && activeGroupId) {
+          socket.emit('switch_group_call_to_video', { groupId: activeGroupId, isVideo: videoTrack.enabled });
+        }
       }
     } catch (err) {
       console.warn('[WebRTC] Error toggling or switching to video:', err);
@@ -504,6 +561,85 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
       user: currentUser,
       isVideo: video,
     });
+  };
+
+  const createPeerForGroupMember = async (
+    targetUserId: string,
+    isInitiator: boolean,
+    stream: MediaStream
+  ) => {
+    if (!socket || !currentUserId) return null;
+
+    if (groupPeersRef.current.has(targetUserId)) {
+      try {
+        groupPeersRef.current.get(targetUserId)?.close();
+      } catch (_) {}
+      groupPeersRef.current.delete(targetUserId);
+    }
+
+    const pc = new RTCPeerConnection(ICE_SERVERS);
+    groupPeersRef.current.set(targetUserId, pc);
+
+    // Add transceivers for both audio and video
+    try {
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
+      pc.addTransceiver('video', { direction: 'sendrecv' });
+    } catch (_) {}
+
+    // Add local tracks to peer connection
+    stream.getTracks().forEach((track) => {
+      try {
+        const senders = pc.getSenders();
+        const existingSender = senders.find((s) => s.track && s.track.kind === track.kind);
+        if (existingSender) {
+          existingSender.replaceTrack(track);
+        } else {
+          pc.addTrack(track, stream);
+        }
+      } catch (err) {
+        console.warn(`[GroupWebRTC] Error attaching track to ${targetUserId}:`, err);
+      }
+    });
+
+    pc.ontrack = (event) => {
+      console.log(`[GroupWebRTC] Received remote ${event.track.kind} track from ${targetUserId}`);
+      let rStream = event.streams && event.streams[0];
+      if (!rStream) {
+        rStream = groupStreamsRef.current.get(targetUserId) || new MediaStream();
+        rStream.addTrack(event.track);
+      }
+      groupStreamsRef.current.set(targetUserId, rStream);
+      setGroupRemoteStreams(new Map(groupStreamsRef.current));
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit('group_ice_candidate', {
+          userToSignal: targetUserId,
+          candidate: event.candidate,
+          callerId: currentUserId,
+        });
+      }
+    };
+
+    if (isInitiator) {
+      try {
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        });
+        await pc.setLocalDescription(offer);
+        socket.emit('group_call_signal', {
+          userToSignal: targetUserId,
+          callerId: currentUserId,
+          signal: offer,
+        });
+      } catch (err) {
+        console.warn(`[GroupWebRTC] Error creating offer for ${targetUserId}:`, err);
+      }
+    }
+
+    return pc;
   };
 
   const leaveGroupCall = () => {
@@ -620,17 +756,129 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
       }
     };
 
-    // Group call participants listing
-    const handleGroupCallUsers = (data: { participants: GroupParticipantInfo[] }) => {
+    // Group call participants listing (new joiner receives list of existing peers)
+    const handleGroupCallUsers = async (data: { participants: GroupParticipantInfo[] }) => {
+      console.log('[GroupWebRTC] group_call_users received:', data.participants);
       setGroupParticipants(data.participants);
+
+      let stream = localStreamRef.current;
+      if (!stream) {
+        stream = await getMediaStream(isVideoCall);
+      }
+
+      // Initiate peer connections to all existing participants
+      for (const p of data.participants) {
+        if (p.userId !== currentUserId) {
+          await createPeerForGroupMember(p.userId, true, stream);
+        }
+      }
     };
 
+    // A new user joined the group call
     const handleUserJoinedGroup = (user: GroupParticipantInfo) => {
+      console.log('[GroupWebRTC] user_joined_group_call:', user.name);
       setGroupParticipants((prev) => [...prev.filter((p) => p.userId !== user.userId), user]);
     };
 
+    // Handling peer-to-peer WebRTC signals in Group Call
+    const handleReceivingGroupSignal = async (data: { signal: any; callerId: string }) => {
+      const { signal, callerId } = data;
+      if (!socket || !currentUserId || callerId === currentUserId) return;
+
+      if (signal.type === 'offer') {
+        console.log(`[GroupWebRTC] Received offer from ${callerId}`);
+        let stream = localStreamRef.current;
+        if (!stream) {
+          stream = await getMediaStream(isVideoCall);
+        }
+
+        const pc = await createPeerForGroupMember(callerId, false, stream);
+        if (!pc) return;
+
+        await pc.setRemoteDescription(new RTCSessionDescription(signal));
+
+        // Drain any buffered ICE candidates for callerId
+        const pending = pendingGroupCandidatesRef.current.get(callerId) || [];
+        for (const cand of pending) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.warn('[GroupWebRTC] Error adding buffered ICE:', e);
+          }
+        }
+        pendingGroupCandidatesRef.current.delete(callerId);
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        socket.emit('group_call_signal', {
+          userToSignal: callerId,
+          callerId: currentUserId,
+          signal: answer,
+        });
+      } else if (signal.type === 'answer') {
+        console.log(`[GroupWebRTC] Received answer from ${callerId}`);
+        const pc = groupPeersRef.current.get(callerId);
+        if (pc) {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal));
+
+          // Drain any buffered ICE candidates
+          const pending = pendingGroupCandidatesRef.current.get(callerId) || [];
+          for (const cand of pending) {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(cand));
+            } catch (e) {
+              console.warn('[GroupWebRTC] Error adding buffered ICE:', e);
+            }
+          }
+          pendingGroupCandidatesRef.current.delete(callerId);
+        }
+      }
+    };
+
+    // Handling ICE Candidates in Group Call
+    const handleReceivingGroupIceCandidate = async (data: { candidate: any; from: string }) => {
+      const { candidate, from } = data;
+      if (!candidate || !from) return;
+
+      const pc = groupPeersRef.current.get(from);
+      if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.warn(`[GroupWebRTC] Error adding ICE candidate from ${from}:`, err);
+        }
+      } else {
+        if (!pendingGroupCandidatesRef.current.has(from)) {
+          pendingGroupCandidatesRef.current.set(from, []);
+        }
+        pendingGroupCandidatesRef.current.get(from)!.push(candidate);
+      }
+    };
+
     const handleUserLeftGroup = (data: { userId: string }) => {
+      console.log('[GroupWebRTC] user_left_group_call:', data.userId);
+      const pc = groupPeersRef.current.get(data.userId);
+      if (pc) {
+        try {
+          pc.close();
+        } catch (_) {}
+        groupPeersRef.current.delete(data.userId);
+      }
+      groupStreamsRef.current.delete(data.userId);
+      pendingGroupCandidatesRef.current.delete(data.userId);
+      setGroupRemoteStreams(new Map(groupStreamsRef.current));
       setGroupParticipants((prev) => prev.filter((p) => p.userId !== data.userId));
+    };
+
+    const handleGroupCallSwitchedToVideo = (data: { userId: string; isVideo: boolean }) => {
+      console.log('[GroupWebRTC] group_call_switched_to_video:', data);
+      setGroupParticipants((prev) =>
+        prev.map((p) => (p.userId === data.userId ? { ...p, isVideo: data.isVideo } : p))
+      );
+      if (data.isVideo) {
+        setIsVideoCall(true);
+      }
     };
 
     const handleCallSwitchedToVideo = (data: { from: string; isVideo: boolean }) => {
@@ -646,8 +894,13 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     socket.on('call_failed', handleCallRejected);
     socket.on('call_switched_to_video', handleCallSwitchedToVideo);
     socket.on('ice_candidate', handleIceCandidate);
+
+    // Group Call WebRTC Socket Events
     socket.on('group_call_users', handleGroupCallUsers);
     socket.on('user_joined_group_call', handleUserJoinedGroup);
+    socket.on('receiving_group_signal', handleReceivingGroupSignal);
+    socket.on('receiving_group_ice_candidate', handleReceivingGroupIceCandidate);
+    socket.on('group_call_switched_to_video', handleGroupCallSwitchedToVideo);
     socket.on('user_left_group_call', handleUserLeftGroup);
 
     return () => {
@@ -658,8 +911,12 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
       socket.off('call_failed', handleCallRejected);
       socket.off('call_switched_to_video', handleCallSwitchedToVideo);
       socket.off('ice_candidate', handleIceCandidate);
+
       socket.off('group_call_users', handleGroupCallUsers);
       socket.off('user_joined_group_call', handleUserJoinedGroup);
+      socket.off('receiving_group_signal', handleReceivingGroupSignal);
+      socket.off('receiving_group_ice_candidate', handleReceivingGroupIceCandidate);
+      socket.off('group_call_switched_to_video', handleGroupCallSwitchedToVideo);
       socket.off('user_left_group_call', handleUserLeftGroup);
     };
   }, [socket, cleanupCall]);
@@ -689,6 +946,7 @@ export function useWebRTC(socket: Socket | null, currentUserId: string | null) {
     inGroupCall,
     activeGroupId,
     groupParticipants,
+    groupRemoteStreams,
     joinGroupCall,
     leaveGroupCall,
   };

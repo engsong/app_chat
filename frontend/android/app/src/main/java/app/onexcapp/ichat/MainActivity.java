@@ -72,18 +72,22 @@ public class MainActivity extends BridgeActivity {
             String from = intent.getStringExtra("from");
             String callerName = intent.getStringExtra("callerName");
             boolean isVideo = "true".equalsIgnoreCase(intent.getStringExtra("isVideo"));
+            String chatId = intent.getStringExtra("chatId");
+            boolean isGroup = "true".equalsIgnoreCase(intent.getStringExtra("isGroup"));
 
             Runnable dispatchCall = () -> {
                 try {
                     if (getBridge() != null && getBridge().getWebView() != null) {
                         String js = String.format(
                             "window.__autoAcceptPendingCall = %b; " +
-                            "window.dispatchEvent(new CustomEvent('native_call_event', { detail: { autoAccept: %b, callId: '%s', from: '%s', callerName: '%s', isVideo: %b } }));",
+                            "window.dispatchEvent(new CustomEvent('native_call_event', { detail: { autoAccept: %b, callId: '%s', from: '%s', callerName: '%s', isVideo: %b, chatId: '%s', isGroup: %b } }));",
                             autoAccept, autoAccept,
                             callId != null ? callId : "",
                             from != null ? from : "",
                             callerName != null ? callerName : "",
-                            isVideo
+                            isVideo,
+                            chatId != null ? chatId : "",
+                            isGroup
                         );
                         getBridge().getWebView().evaluateJavascript(js, null);
                     }

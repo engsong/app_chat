@@ -843,6 +843,8 @@ export function setupSocketHandlers(io: Server) {
       const { groupId, user, isVideo } = data;
       console.log(`[GroupCall] User ${user.name} joining group call: ${groupId}`);
 
+      const isInitiator = !activeGroupCalls.has(groupId) || activeGroupCalls.get(groupId)!.size === 0;
+
       if (!activeGroupCalls.has(groupId)) {
         activeGroupCalls.set(groupId, new Map());
       }
@@ -873,6 +875,53 @@ export function setupSocketHandlers(io: Server) {
         name: user.name,
         avatar: user.avatar,
       });
+
+      // If this user is starting the group call, ring all other members of the group!
+      if (isInitiator) {
+        const chat = store.chats.get(groupId);
+        if (chat && chat.memberIds) {
+          const otherMemberIds = chat.memberIds.filter((mId) => mId !== user.id);
+          const callerAvatarUrl = (user.avatar && !user.avatar.startsWith('data:'))
+            ? user.avatar
+            : `https://chat.on-excapp.app/api/users/${user.id}/avatar`;
+          const callId = `grp-${groupId}-${Date.now()}`;
+
+          const incomingPayload = {
+            callId,
+            from: user.id,
+            callerName: `${user.name} (${chat.name || 'Group'})`,
+            callerAvatar: callerAvatarUrl,
+            isVideo: !!isVideo,
+            chatId: groupId,
+            isGroup: true,
+            groupName: chat.name || 'Group Call',
+          };
+
+          otherMemberIds.forEach((mId) => {
+            ioInstance?.to(`user_${mId}`).emit('incoming_call', incomingPayload);
+            userSocketMap.get(mId)?.forEach((sId) => ioInstance?.to(sId).emit('incoming_call', incomingPayload));
+
+            sendPushToUser(mId, {
+              title: isVideo ? `📹 Group Video Call: ${chat.name}` : `📞 Group Voice Call: ${chat.name}`,
+              body: `${user.name} is calling the group... Tap to join.`,
+              icon: callerAvatarUrl,
+              tag: `group-call-${groupId}`,
+              requireInteraction: true,
+              data: {
+                url: 'https://chat.on-excapp.app',
+                type: 'call',
+                callId,
+                callerName: incomingPayload.callerName,
+                callerAvatar: callerAvatarUrl,
+                isVideo: String(!!isVideo),
+                chatId: groupId,
+                isGroup: 'true',
+                from: user.id,
+              },
+            });
+          });
+        }
+      }
     });
 
     socket.on('group_call_signal', (data: {
@@ -890,6 +939,32 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
+    socket.on('group_ice_candidate', (data: {
+      userToSignal: string;
+      candidate: any;
+      callerId: string;
+    }) => {
+      const payload = { candidate: data.candidate, from: data.callerId || socketUserMap.get(socket.id) };
+      io.to(`user_${data.userToSignal}`).emit('receiving_group_ice_candidate', payload);
+      userSocketMap.get(data.userToSignal)?.forEach((sId) => {
+        io.to(sId).emit('receiving_group_ice_candidate', payload);
+      });
+    });
+
+    socket.on('switch_group_call_to_video', (data: { groupId: string; isVideo?: boolean }) => {
+      const { groupId, isVideo } = data;
+      const senderId = socketUserMap.get(socket.id);
+      if (groupId && senderId) {
+        console.log(`[GroupCall] User ${senderId} switched video mode in group ${groupId} to ${isVideo}`);
+        const groupRoom = activeGroupCalls.get(groupId);
+        if (groupRoom && groupRoom.has(senderId)) {
+          groupRoom.get(senderId)!.isVideo = isVideo !== false;
+        }
+        const payload = { userId: senderId, isVideo: isVideo !== false };
+        io.to(`group-call-${groupId}`).emit('group_call_switched_to_video', payload);
+      }
+    });
+
     socket.on('leave_group_call', ({ groupId, userId }: { groupId: string; userId: string }) => {
       console.log(`[GroupCall] User ${userId} leaving group call: ${groupId}`);
       const groupRoom = activeGroupCalls.get(groupId);
@@ -897,6 +972,13 @@ export function setupSocketHandlers(io: Server) {
         groupRoom.delete(userId);
         if (groupRoom.size === 0) {
           activeGroupCalls.delete(groupId);
+          const chat = store.chats.get(groupId);
+          if (chat && chat.memberIds) {
+            chat.memberIds.forEach((mId) => {
+              io.to(`user_${mId}`).emit('call_ended');
+              userSocketMap.get(mId)?.forEach((sId) => io.to(sId).emit('call_ended'));
+            });
+          }
         }
       }
 
