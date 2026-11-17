@@ -26,7 +26,10 @@ import {
   MoreVertical,
   Star,
   CornerUpRight,
-  Radio
+  Radio,
+  Search,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import { Chat, Message, User, Product, QuickReply } from '../../types/index.js';
 import { soundEffects } from '../../utils/audioTones.js';
@@ -111,6 +114,71 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Image lightbox modal
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  // In-Chat Message Search state
+  const [showInChatSearch, setShowInChatSearch] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const chatSearchInputRef = useRef<HTMLInputElement>(null);
+
+  // Compute matching message IDs in this active chat
+  const matchingMessageIds = React.useMemo(() => {
+    if (!chatSearchQuery.trim()) return [];
+    const query = chatSearchQuery.toLowerCase().trim();
+    return messages
+      .filter((m) => m.content && m.content.toLowerCase().includes(query))
+      .map((m) => m.id);
+  }, [messages, chatSearchQuery]);
+
+  // Scroll to matched message element smoothly
+  const scrollToMatch = (messageId: string) => {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
+  const handleNextMatch = () => {
+    if (matchingMessageIds.length === 0) return;
+    const nextIdx = (currentMatchIndex + 1) % matchingMessageIds.length;
+    setCurrentMatchIndex(nextIdx);
+    scrollToMatch(matchingMessageIds[nextIdx]);
+  };
+
+  const handlePrevMatch = () => {
+    if (matchingMessageIds.length === 0) return;
+    const prevIdx = (currentMatchIndex - 1 + matchingMessageIds.length) % matchingMessageIds.length;
+    setCurrentMatchIndex(prevIdx);
+    scrollToMatch(matchingMessageIds[prevIdx]);
+  };
+
+  // Auto-scroll to latest match when search query changes
+  useEffect(() => {
+    if (matchingMessageIds.length > 0) {
+      const latestIdx = matchingMessageIds.length - 1;
+      setCurrentMatchIndex(latestIdx);
+      scrollToMatch(matchingMessageIds[latestIdx]);
+    } else {
+      setCurrentMatchIndex(0);
+    }
+  }, [chatSearchQuery]);
+
+  // Render text with highlighted matching substring
+  const renderHighlightedText = (text: string, query: string) => {
+    if (!query.trim() || !text) return text;
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, i) =>
+      part.toLowerCase() === query.toLowerCase() ? (
+        <mark key={i} className="bg-amber-400 text-black px-0.5 rounded font-semibold">
+          {part}
+        </mark>
+      ) : (
+        part
+      )
+    );
+  };
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -669,6 +737,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               </button>
             )}
 
+            {/* In-Chat Search Button */}
+            <button
+              onClick={() => {
+                setShowInChatSearch((prev) => {
+                  const next = !prev;
+                  if (next) setTimeout(() => chatSearchInputRef.current?.focus(), 100);
+                  else setChatSearchQuery('');
+                  return next;
+                });
+              }}
+              className={`p-2 sm:p-2.5 rounded-full hover:bg-[#374248] transition-colors ${
+                showInChatSearch ? 'bg-[#00a884]/20 text-[#00a884]' : 'text-white hover:text-[#00a884]'
+              }`}
+              title="Search text in this chat"
+              aria-label="Search text in chat"
+            >
+              <Search className="w-5 h-5" />
+            </button>
+
             {/* Chat Options Menu (Wallpaper, Clear, Delete) */}
             <div className="relative" ref={chatMenuRef}>
               <button
@@ -682,6 +769,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
               {showChatMenu && (
                 <div className="absolute right-0 top-full mt-1.5 w-52 bg-[#233138] rounded-xl shadow-2xl border border-[#2a3942] py-1.5 z-50 text-sm text-[#d1d7db] animate-scale-up">
+                  <button
+                    onClick={() => {
+                      setShowChatMenu(false);
+                      setShowInChatSearch(true);
+                      setTimeout(() => chatSearchInputRef.current?.focus(), 100);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#111b21] hover:text-[#00a884] text-left transition-colors"
+                  >
+                    <Search className="w-4 h-4 text-[#00a884]" />
+                    <span>Search in Chat</span>
+                  </button>
                   {onOpenWallpaper && (
                     <button
                       onClick={() => {
@@ -729,6 +827,78 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
       )}
 
+      {/* In-Chat Message Search Bar */}
+      {showInChatSearch && (
+        <div className="px-3 sm:px-4 py-2 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between gap-2 shadow-lg z-20 animate-fade-in flex-shrink-0">
+          <div className="flex items-center gap-2 flex-1 bg-[#111b21] rounded-xl px-3 py-1.5 border border-[#2a3942] focus-within:border-[#00a884]/80 transition-all">
+            <Search className="w-4 h-4 text-[#8696a0] flex-shrink-0" />
+            <input
+              ref={chatSearchInputRef}
+              type="text"
+              placeholder="Search text in this chat..."
+              value={chatSearchQuery}
+              onChange={(e) => setChatSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  if (e.shiftKey) handlePrevMatch();
+                  else handleNextMatch();
+                } else if (e.key === 'Escape') {
+                  setShowInChatSearch(false);
+                  setChatSearchQuery('');
+                }
+              }}
+              className="bg-transparent text-white text-xs sm:text-sm focus:outline-none flex-1 placeholder:text-[#8696a0]"
+              autoFocus
+            />
+            {chatSearchQuery && (
+              <button
+                onClick={() => setChatSearchQuery('')}
+                className="text-[#8696a0] hover:text-white p-0.5 rounded-full"
+                title="Clear input"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+            {chatSearchQuery.trim() && (
+              <span className="text-[11px] text-[#8696a0] font-mono px-1 select-none">
+                {matchingMessageIds.length > 0
+                  ? `${currentMatchIndex + 1} of ${matchingMessageIds.length}`
+                  : '0 found'}
+              </span>
+            )}
+            <button
+              onClick={handlePrevMatch}
+              disabled={matchingMessageIds.length === 0}
+              className="p-1.5 rounded-lg hover:bg-[#374248] text-white disabled:opacity-30 transition-colors"
+              title="Previous match (Shift+Enter)"
+            >
+              <ChevronUp className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleNextMatch}
+              disabled={matchingMessageIds.length === 0}
+              className="p-1.5 rounded-lg hover:bg-[#374248] text-white disabled:opacity-30 transition-colors"
+              title="Next match (Enter)"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                setShowInChatSearch(false);
+                setChatSearchQuery('');
+              }}
+              className="p-1.5 rounded-lg hover:bg-[#374248] text-[#8696a0] hover:text-white transition-colors"
+              title="Close search"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 2. Messages List Body */}
       <div
         ref={messagesContainerRef}
@@ -753,10 +923,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           const isMe = msg.senderId === currentUser.id;
           const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           const isSelected = selectedMessageIds.includes(msg.id);
+          const isMatchedMessage = Boolean(chatSearchQuery.trim() && matchingMessageIds.includes(msg.id));
+          const isCurrentActiveMatch = Boolean(chatSearchQuery.trim() && matchingMessageIds[currentMatchIndex] === msg.id);
 
           return (
             <div
               key={msg.id}
+              id={`msg-${msg.id}`}
               onClick={() => {
                 if (selectedMessageIds.length > 0) {
                   toggleSelectMessage(msg.id);
@@ -774,12 +947,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               }`}
             >
               <div
-                className={`max-w-[88%] sm:max-w-md rounded-2xl p-2.5 sm:p-3 shadow-md relative transition-transform ${
+                className={`max-w-[88%] sm:max-w-md rounded-2xl p-2.5 sm:p-3 shadow-md relative transition-all ${
                   isSelected ? 'scale-[0.99]' : ''
                 } ${
                   isMe
                     ? 'bg-[#005c4b] text-white rounded-tr-none'
                     : 'bg-[#202c33] text-white rounded-tl-none border border-[#2a3942]/50'
+                } ${
+                  isCurrentActiveMatch
+                    ? 'ring-2 ring-amber-400 shadow-lg shadow-amber-400/30'
+                    : isMatchedMessage
+                    ? 'ring-1 ring-amber-400/60'
+                    : ''
                 }`}
               >
                 {/* Sender Name in Group Chat */}
@@ -792,7 +971,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 {/* 1. Text Message */}
                 {msg.type === 'text' && (
                   <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                    {msg.content}
+                    {chatSearchQuery.trim() ? renderHighlightedText(msg.content, chatSearchQuery) : msg.content}
                   </p>
                 )}
 
@@ -820,7 +999,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       !/\.(jpe?g|png|gif|webp|bmp|heic|svg)$/i.test(msg.content.trim()) &&
                       !/^Screenshot[_\s\d\-.]+/i.test(msg.content.trim()) &&
                       !/^\d{6,}[_\d\-.]*\.(jpe?g|png|gif|webp)$/i.test(msg.content.trim()) && (
-                        <p className="text-sm text-white pt-1">{msg.content}</p>
+                        <p className="text-sm text-white pt-1">
+                          {chatSearchQuery.trim() ? renderHighlightedText(msg.content, chatSearchQuery) : msg.content}
+                        </p>
                       )}
                   </div>
                 )}
