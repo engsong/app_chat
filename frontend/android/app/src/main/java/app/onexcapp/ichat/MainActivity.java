@@ -22,6 +22,11 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         wakeAndUnlock();
         super.onCreate(savedInstanceState);
+        try {
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+            }
+        } catch (Exception ignored) {}
         NotificationHelper.createChannels(this);
         checkAllRequiredPermissions();
         handleCallIntent(getIntent());
@@ -45,6 +50,11 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         wakeAndUnlock();
+        try {
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+            }
+        } catch (Exception ignored) {}
         checkAllRequiredPermissions();
     }
 

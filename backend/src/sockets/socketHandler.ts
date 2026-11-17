@@ -726,15 +726,15 @@ export function setupSocketHandlers(io: Server) {
             });
           }
         }
-      }
 
-      const payload = { reason: data.reason || 'Call declined' };
-      io.to(`user_${data.to}`).emit('call_rejected', payload);
-      const callerSockets = userSocketMap.get(data.to);
-      if (callerSockets) {
-        callerSockets.forEach((sId) => {
-          io.to(sId).emit('call_rejected', payload);
-        });
+        const payload = { reason: data.reason || 'Call declined' };
+        io.to(`user_${data.to}`).emit('call_rejected', payload);
+        const callerSockets = userSocketMap.get(data.to);
+        if (callerSockets) {
+          callerSockets.forEach((sId) => {
+            io.to(sId).emit('call_rejected', payload);
+          });
+        }
       }
     });
 
@@ -838,6 +838,43 @@ export function setupSocketHandlers(io: Server) {
         io.to(`user_${data.to}`).emit('call_switched_to_video', payload);
         userSocketMap.get(data.to)?.forEach((sId) => {
           io.to(sId).emit('call_switched_to_video', payload);
+        });
+      }
+    });
+
+    // WebRTC 1-on-1 In-Call Renegotiation (for adding video track mid-call without restart)
+    socket.on('renegotiate_offer', (data: { to: string; signal: any }) => {
+      const senderId = socketUserMap.get(socket.id);
+      if (senderId && data.to) {
+        console.log(`[Call] Renegotiate offer from ${senderId} to ${data.to}`);
+        const payload = { from: senderId, signal: data.signal };
+        io.to(`user_${data.to}`).emit('receiving_renegotiate_offer', payload);
+        userSocketMap.get(data.to)?.forEach((sId) => {
+          io.to(sId).emit('receiving_renegotiate_offer', payload);
+        });
+      }
+    });
+
+    socket.on('renegotiate_answer', (data: { to: string; signal: any }) => {
+      const senderId = socketUserMap.get(socket.id);
+      if (senderId && data.to) {
+        console.log(`[Call] Renegotiate answer from ${senderId} to ${data.to}`);
+        const payload = { from: senderId, signal: data.signal };
+        io.to(`user_${data.to}`).emit('receiving_renegotiate_answer', payload);
+        userSocketMap.get(data.to)?.forEach((sId) => {
+          io.to(sId).emit('receiving_renegotiate_answer', payload);
+        });
+      }
+    });
+
+    // Individual member declining group call (must NEVER end the group call for other members)
+    socket.on('reject_group_call', (data: { groupId: string; callerId?: string }) => {
+      const senderId = socketUserMap.get(socket.id);
+      console.log(`[GroupCall] User ${senderId} declined group call for group ${data.groupId}`);
+      if (senderId && data.groupId) {
+        socket.to(`group-call-${data.groupId}`).emit('user_declined_group_call', {
+          userId: senderId,
+          groupId: data.groupId,
         });
       }
     });

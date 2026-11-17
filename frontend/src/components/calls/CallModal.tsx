@@ -56,7 +56,7 @@ export const CallModal: React.FC<CallModalProps> = ({
       localVideoRef.current.srcObject = localStreamRef.current;
       localVideoRef.current.play().catch(() => {});
     }
-  }, [localStreamRef.current, callActive, isCalling, isVideoDisabled]);
+  }, [localStreamRef.current, callActive, isCalling, isVideoCall, isVideoDisabled]);
 
   useEffect(() => {
     const stream = remoteStream || remoteStreamRef.current;
@@ -208,39 +208,37 @@ export const CallModal: React.FC<CallModalProps> = ({
 
         {/* Video / Visualizer Area */}
         <div className="relative flex-1 flex items-center justify-center bg-[#0c1317] overflow-hidden">
-          {isVideoCall ? (
-            <>
-              {/* Remote Video */}
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                className="w-full h-full object-cover"
-              />
+          {/* Remote Video - permanently mounted to preserve ref and active stream attachment */}
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className={`w-full h-full object-cover ${isVideoCall ? 'block' : 'hidden'}`}
+          />
 
-              {/* Local Video PIP */}
-              <div className="absolute top-6 right-6 w-36 h-48 sm:w-48 sm:h-64 rounded-xl overflow-hidden border-2 border-white/20 shadow-2xl bg-black/60 z-10">
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className={`w-full h-full object-cover ${isVideoDisabled ? 'hidden' : ''}`}
-                />
-                {isVideoDisabled && (
-                  <div className="w-full h-full flex flex-col items-center justify-center bg-[#202c33] text-gray-400">
-                    <VideoOff className="w-8 h-8 mb-2" />
-                    <span className="text-xs">Camera Off</span>
-                  </div>
-                )}
-                <div className="absolute bottom-2 left-2 text-[10px] bg-black/60 px-2 py-0.5 rounded text-white">
-                  You
-                </div>
+          {/* Local Video PIP - permanently mounted */}
+          <div className={`absolute top-6 right-6 w-36 h-48 sm:w-48 sm:h-64 rounded-xl overflow-hidden border-2 border-white/20 shadow-2xl bg-black/60 z-10 ${isVideoCall ? 'block' : 'hidden'}`}>
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className={`w-full h-full object-cover ${isVideoDisabled ? 'hidden' : 'block'}`}
+            />
+            {isVideoDisabled && (
+              <div className="w-full h-full flex flex-col items-center justify-center bg-[#202c33] text-gray-400">
+                <VideoOff className="w-8 h-8 mb-2" />
+                <span className="text-xs">Camera Off</span>
               </div>
-            </>
-          ) : (
-            /* Voice Call View with audio waveform */
-            <div className="flex flex-col items-center text-center p-8">
+            )}
+            <div className="absolute bottom-2 left-2 text-[10px] bg-black/60 px-2 py-0.5 rounded text-white">
+              You
+            </div>
+          </div>
+
+          {/* Voice Call View with audio waveform (shown when not video call) */}
+          {!isVideoCall && (
+            <div className="flex flex-col items-center text-center p-8 z-10">
               <div className="relative mb-6">
                 <img
                   src={getAvatarUrl(remoteUserAvatar)}

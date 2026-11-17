@@ -38,6 +38,7 @@ export interface IncomingCallInfo {
   callerAvatar?: string;
   isVideo: boolean;
   chatId?: string;
+  groupId?: string;
   isGroup?: boolean;
   groupName?: string;
 }
@@ -78,6 +79,8 @@ export function useWebRTC(
   const [groupRemoteStreams, setGroupRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
 
   // Refs
+  const inGroupCallRef = useRef(false);
+  inGroupCallRef.current = inGroupCall;
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -289,7 +292,7 @@ export function useWebRTC(
           stream.addTrack(event.track);
         }
         remoteStreamRef.current = stream;
-        setRemoteStream(stream);
+        setRemoteStream(new MediaStream(stream.getTracks()));
       };
 
       pc.onicecandidate = (event) => {
@@ -373,7 +376,7 @@ export function useWebRTC(
         rStream.addTrack(event.track);
       }
       remoteStreamRef.current = rStream;
-      setRemoteStream(rStream);
+      setRemoteStream(new MediaStream(rStream.getTracks()));
     };
 
     pc.onicecandidate = (event) => {
@@ -402,7 +405,11 @@ export function useWebRTC(
     closeCallNotification();
 
     if (socket && incomingCall) {
-      socket.emit('reject_call', { to: incomingCall.from });
+      if (incomingCall.isGroup && incomingCall.chatId) {
+        socket.emit('reject_group_call', { groupId: incomingCall.chatId, callerId: incomingCall.from });
+      } else {
+        socket.emit('reject_call', { to: incomingCall.from });
+      }
     }
     soundEffects.stopRingtone();
     setIncomingCall(null);
@@ -459,14 +466,28 @@ export function useWebRTC(
         if (videoTrack) {
           localStreamRef.current.addTrack(videoTrack);
 
-          // Add or replace on peer connection
-          if (peerConnectionRef.current) {
+          // Add or replace on peer connection (1-on-1 Call)
+          if (!inGroupCall && peerConnectionRef.current) {
             const senders = peerConnectionRef.current.getSenders();
             const videoSender = senders.find((s) => s.track && s.track.kind === 'video');
             if (videoSender) {
               await videoSender.replaceTrack(videoTrack);
             } else {
               peerConnectionRef.current.addTrack(videoTrack, localStreamRef.current);
+            }
+
+            // In-call WebRTC renegotiation for 1-on-1 call
+            try {
+              const offer = await peerConnectionRef.current.createOffer();
+              await peerConnectionRef.current.setLocalDescription(offer);
+              if (socket && callPartnerIdRef.current) {
+                socket.emit('renegotiate_offer', {
+                  to: callPartnerIdRef.current,
+                  signal: offer,
+                });
+              }
+            } catch (renegErr) {
+              console.warn('[WebRTC] In-call renegotiation error:', renegErr);
             }
           }
 
@@ -598,26 +619,29 @@ export function useWebRTC(
     const pc = new RTCPeerConnection(ICE_SERVERS);
     groupPeersRef.current.set(targetUserId, pc);
 
-    // Add transceivers for both audio and video
-    try {
-      pc.addTransceiver('audio', { direction: 'sendrecv' });
-      pc.addTransceiver('video', { direction: 'sendrecv' });
-    } catch (_) {}
-
-    // Add local tracks to peer connection
-    stream.getTracks().forEach((track) => {
+    // Add audio track directly for crystal-clear voice communication
+    const audioTrack = stream.getAudioTracks()[0];
+    if (audioTrack) {
       try {
-        const senders = pc.getSenders();
-        const existingSender = senders.find((s) => s.track && s.track.kind === track.kind);
-        if (existingSender) {
-          existingSender.replaceTrack(track);
-        } else {
-          pc.addTrack(track, stream);
-        }
+        pc.addTrack(audioTrack, stream);
       } catch (err) {
-        console.warn(`[GroupWebRTC] Error attaching track to ${targetUserId}:`, err);
+        console.warn(`[GroupWebRTC] Error adding audio track to ${targetUserId}:`, err);
       }
-    });
+    }
+
+    // Add video track or video receiver transceiver
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      try {
+        pc.addTrack(videoTrack, stream);
+      } catch (err) {
+        console.warn(`[GroupWebRTC] Error adding video track to ${targetUserId}:`, err);
+      }
+    } else {
+      try {
+        pc.addTransceiver('video', { direction: 'recvonly' });
+      } catch (_) {}
+    }
 
     pc.ontrack = (event) => {
       console.log(`[GroupWebRTC] Received remote ${event.track.kind} track from ${targetUserId}`);
@@ -700,8 +724,12 @@ export function useWebRTC(
       if (incomingCallTimeoutRef.current) clearTimeout(incomingCallTimeoutRef.current);
       incomingCallTimeoutRef.current = setTimeout(() => {
         console.log('[WebRTC] Incoming call not answered within 1 minute, auto declining');
-        if (socket && data.from) {
-          socket.emit('reject_call', { to: data.from, reason: 'no_answer' });
+        if (socket) {
+          if (data.isGroup && (data.groupId || data.chatId)) {
+            socket.emit('reject_group_call', { groupId: data.groupId || data.chatId });
+          } else if (data.from) {
+            socket.emit('reject_call', { to: data.from, reason: 'no_answer' });
+          }
         }
         soundEffects.stopRingtone();
         closeCallNotification();
@@ -732,6 +760,11 @@ export function useWebRTC(
 
     // Call Rejected
     const handleCallRejected = () => {
+      // If currently active in a group call, a rejection from an invited peer must NOT kill the group call!
+      if (inGroupCallRef.current) {
+        console.log('[WebRTC] Ignored call_rejected because inGroupCall is active');
+        return;
+      }
       if (callTimeoutRef.current) {
         clearTimeout(callTimeoutRef.current);
         callTimeoutRef.current = null;
@@ -899,10 +932,73 @@ export function useWebRTC(
       }
     };
 
-    const handleCallSwitchedToVideo = (data: { from: string; isVideo: boolean }) => {
+    const handleReceivingRenegotiateOffer = async (data: { from: string; signal: any }) => {
+      console.log('[WebRTC] Received renegotiate offer from:', data.from);
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.signal));
+        await drainCandidateQueue(pc);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        if (socket) {
+          socket.emit('renegotiate_answer', { to: data.from, signal: answer });
+        }
+      } catch (err) {
+        console.warn('[WebRTC] Error handling renegotiate offer:', err);
+      }
+    };
+
+    const handleReceivingRenegotiateAnswer = async (data: { from: string; signal: any }) => {
+      console.log('[WebRTC] Received renegotiate answer from:', data.from);
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.signal));
+        await drainCandidateQueue(pc);
+      } catch (err) {
+        console.warn('[WebRTC] Error handling renegotiate answer:', err);
+      }
+    };
+
+    const handleCallSwitchedToVideo = async (data: { from: string; isVideo: boolean }) => {
       console.log('[WebRTC] Call switched to video by remote peer', data);
       setIsVideoCall(true);
       setIsVideoDisabled(false);
+
+      try {
+        if (!localStreamRef.current?.getVideoTracks().length) {
+          const camStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280, max: 1920 },
+              height: { ideal: 720, max: 1080 },
+              frameRate: { ideal: 30, max: 30 },
+              facingMode: 'user',
+            },
+          });
+          const videoTrack = camStream.getVideoTracks()[0];
+          if (videoTrack) {
+            if (localStreamRef.current) {
+              localStreamRef.current.addTrack(videoTrack);
+            } else {
+              localStreamRef.current = camStream;
+            }
+            if (peerConnectionRef.current) {
+              peerConnectionRef.current.addTrack(videoTrack, localStreamRef.current);
+              const offer = await peerConnectionRef.current.createOffer();
+              await peerConnectionRef.current.setLocalDescription(offer);
+              if (socket && callPartnerIdRef.current) {
+                socket.emit('renegotiate_offer', {
+                  to: callPartnerIdRef.current,
+                  signal: offer,
+                });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[WebRTC] Could not auto-acquire camera when switched to video:', err);
+      }
     };
 
     socket.on('incoming_call', handleIncomingCall);
@@ -911,6 +1007,8 @@ export function useWebRTC(
     socket.on('call_ended', handleCallEnded);
     socket.on('call_failed', handleCallRejected);
     socket.on('call_switched_to_video', handleCallSwitchedToVideo);
+    socket.on('receiving_renegotiate_offer', handleReceivingRenegotiateOffer);
+    socket.on('receiving_renegotiate_answer', handleReceivingRenegotiateAnswer);
     socket.on('ice_candidate', handleIceCandidate);
 
     // Group Call WebRTC Socket Events
@@ -928,6 +1026,8 @@ export function useWebRTC(
       socket.off('call_ended', handleCallEnded);
       socket.off('call_failed', handleCallRejected);
       socket.off('call_switched_to_video', handleCallSwitchedToVideo);
+      socket.off('receiving_renegotiate_offer', handleReceivingRenegotiateOffer);
+      socket.off('receiving_renegotiate_answer', handleReceivingRenegotiateAnswer);
       socket.off('ice_candidate', handleIceCandidate);
 
       socket.off('group_call_users', handleGroupCallUsers);

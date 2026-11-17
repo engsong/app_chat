@@ -53,14 +53,13 @@ const RemoteParticipantTile: React.FC<{
       {/* Hidden audio element for remote stream playback */}
       <audio ref={audioRef} autoPlay playsInline />
 
-      {showVideo ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          className="w-full h-full object-cover"
-        />
-      ) : (
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        className={`w-full h-full object-cover ${showVideo ? 'block' : 'hidden'}`}
+      />
+      {!showVideo && (
         <div className="flex flex-col items-center">
           <img
             src={participant.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
@@ -100,8 +99,9 @@ export const GroupCallModal: React.FC<GroupCallModalProps> = ({
   useEffect(() => {
     if (localVideoRef.current && localStreamRef.current) {
       localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.play().catch(() => {});
     }
-  }, [localStreamRef.current, isVideoDisabled]);
+  }, [localStreamRef.current, isVideoCall, isVideoDisabled]);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#111b21] text-white">
@@ -125,15 +125,14 @@ export const GroupCallModal: React.FC<GroupCallModalProps> = ({
       <div className="flex-1 p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-fr overflow-y-auto">
         {/* Local Participant Tile */}
         <div className="relative rounded-2xl overflow-hidden bg-[#202c33] border border-[#2a3942] flex items-center justify-center min-h-[180px] shadow-lg">
-          {isVideoCall && !isVideoDisabled ? (
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-            />
-          ) : (
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`w-full h-full object-cover ${isVideoCall && !isVideoDisabled ? 'block' : 'hidden'}`}
+          />
+          {(!isVideoCall || isVideoDisabled) && (
             <div className="flex flex-col items-center">
               <div className="w-20 h-20 rounded-full bg-[#00a884] flex items-center justify-center text-2xl font-bold mb-2 shadow-inner">
                 You
