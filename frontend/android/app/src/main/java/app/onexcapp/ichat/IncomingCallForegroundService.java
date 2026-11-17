@@ -3,22 +3,16 @@ package app.onexcapp.ichat;
 import android.app.ActivityOptions;
 import android.app.Notification;
 import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
-import android.media.RingtoneManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.PowerManager;
 import androidx.annotation.Nullable;
-import androidx.core.app.NotificationCompat;
-import androidx.core.app.Person;
-import androidx.core.graphics.drawable.IconCompat;
 
 public class IncomingCallForegroundService extends Service {
     public static final String ACTION_START_CALL = "app.onexcapp.ichat.ACTION_START_CALL";
@@ -55,108 +49,15 @@ public class IncomingCallForegroundService extends Service {
         String callerName = intent.getStringExtra("callerName");
         String callerAvatar = intent.getStringExtra("callerAvatar");
         boolean isVideo = "true".equalsIgnoreCase(intent.getStringExtra("isVideo"));
-
-        if (callerName == null || callerName.isEmpty()) {
-            callerName = "IChat User";
-        }
-        String callType = isVideo ? "Video Call" : "Voice Call";
-
-        // 3. Build Full Screen Intent targeting IncomingCallActivity
-        Intent fullScreenIntent = new Intent(this, IncomingCallActivity.class);
-        fullScreenIntent.addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK |
-            Intent.FLAG_ACTIVITY_CLEAR_TOP |
-            Intent.FLAG_ACTIVITY_SINGLE_TOP |
-            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-        );
-        fullScreenIntent.setAction("app.onexcapp.ichat.INCOMING_CALL");
-        fullScreenIntent.putExtra("isIncomingCall", true);
-        fullScreenIntent.putExtra("callId", callId);
-        fullScreenIntent.putExtra("from", from);
-        fullScreenIntent.putExtra("callerName", callerName);
-        fullScreenIntent.putExtra("callerAvatar", callerAvatar);
         String chatId = intent.getStringExtra("chatId");
-        String isGroup = intent.getStringExtra("isGroup");
-        fullScreenIntent.putExtra("isVideo", String.valueOf(isVideo));
-        fullScreenIntent.putExtra("chatId", chatId);
-        fullScreenIntent.putExtra("isGroup", isGroup);
+        boolean isGroup = "true".equalsIgnoreCase(intent.getStringExtra("isGroup"));
 
-        int pFlags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            pFlags |= PendingIntent.FLAG_IMMUTABLE;
-        }
-
-        // Android 14+ (API 34+) explicit authorization to start activity from background
-        Bundle activityOptionsBundle = null;
-        if (Build.VERSION.SDK_INT >= 34) {
-            try {
-                ActivityOptions options = ActivityOptions.makeBasic();
-                options.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
-                activityOptionsBundle = options.toBundle();
-            } catch (Exception ignored) {}
-        }
-
-        PendingIntent fullScreenPendingIntent;
-        if (activityOptionsBundle != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            fullScreenPendingIntent = PendingIntent.getActivity(
-                this,
-                NOTIFICATION_ID,
-                fullScreenIntent,
-                pFlags,
-                activityOptionsBundle
-            );
-        } else {
-            fullScreenPendingIntent = PendingIntent.getActivity(
-                this,
-                NOTIFICATION_ID,
-                fullScreenIntent,
-                pFlags
-            );
-        }
-
-        // Decline Intent
-        Intent declineIntent = new Intent(this, CallActionReceiver.class);
-        declineIntent.setAction(CallActionReceiver.ACTION_DECLINE_CALL);
-        declineIntent.putExtra("callId", callId);
-        declineIntent.putExtra("from", from);
-        PendingIntent declinePendingIntent = PendingIntent.getBroadcast(
-            this,
-            NOTIFICATION_ID + 1,
-            declineIntent,
-            pFlags
+        // 3. Build notification using unified NotificationHelper
+        Notification notification = NotificationHelper.buildCallNotification(
+            this, callId, from, callerName, callerAvatar, isVideo, chatId, isGroup, null
         );
 
-        Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-
-        androidx.core.app.Person callerPerson = new androidx.core.app.Person.Builder()
-            .setName(callerName)
-            .setImportant(true)
-            .build();
-
-        // 4. Build high-priority call notification with full-screen intent and native CallStyle
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NotificationHelper.CALL_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_ichat)
-            .setContentTitle(isVideo ? "Incoming Video Call" : "Incoming Voice Call")
-            .setContentText(callerName + " is calling you...")
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setAutoCancel(false)
-            .setOngoing(true)
-            .setSound(ringtoneUri)
-            .setVibrate(new long[]{0, 1000, 500, 1000, 500, 1000})
-            .setContentIntent(fullScreenPendingIntent)
-            .setFullScreenIntent(fullScreenPendingIntent, true)
-            .setStyle(
-                NotificationCompat.CallStyle.forIncomingCall(callerPerson, declinePendingIntent, fullScreenPendingIntent)
-                    .setIsVideo(isVideo)
-            )
-            .addAction(R.drawable.ic_call_decline, "Decline", declinePendingIntent)
-            .addAction(R.drawable.ic_call_accept, "Answer", fullScreenPendingIntent);
-
-        Notification notification = builder.build();
-
-        // 5. Start Foreground Service immediately with phoneCall type
+        // 4. Start Foreground Service immediately
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 int serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL;
@@ -171,24 +72,63 @@ public class IncomingCallForegroundService extends Service {
             } catch (Exception ignored) {}
         }
 
-        // 6. Directly launch IncomingCallActivity over lock screen / home screen
+        // Also post via NotificationManager to ensure heads-up visibility
         try {
-            if (activityOptionsBundle != null) {
-                startActivity(fullScreenIntent, activityOptionsBundle);
-            } else {
-                startActivity(fullScreenIntent);
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) {
+                nm.notify(NOTIFICATION_ID, notification);
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        } catch (Exception ignored) {}
 
-        // 7. Asynchronously fetch avatar icon to update notification without blocking main thread
+        // 5. Try launching IncomingCallActivity directly as well
+        try {
+            Intent callIntent = new Intent(this, IncomingCallActivity.class);
+            callIntent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK |
+                Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                Intent.FLAG_ACTIVITY_SINGLE_TOP |
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            );
+            callIntent.setAction("app.onexcapp.ichat.INCOMING_CALL");
+            callIntent.putExtra("isIncomingCall", true);
+            callIntent.putExtra("callId", callId);
+            callIntent.putExtra("from", from);
+            callIntent.putExtra("callerName", callerName);
+            callIntent.putExtra("callerAvatar", callerAvatar);
+            callIntent.putExtra("isVideo", String.valueOf(isVideo));
+            callIntent.putExtra("chatId", chatId);
+            callIntent.putExtra("isGroup", isGroup ? "true" : "false");
+
+            Bundle activityOptionsBundle = null;
+            if (Build.VERSION.SDK_INT >= 34) {
+                ActivityOptions options = ActivityOptions.makeBasic();
+                options.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                activityOptionsBundle = options.toBundle();
+            }
+
+            if (activityOptionsBundle != null) {
+                startActivity(callIntent, activityOptionsBundle);
+            } else {
+                startActivity(callIntent);
+            }
+        } catch (Exception ignored) {}
+
+        // 6. Asynchronously fetch avatar icon to update notification
         final String avatarToFetch = callerAvatar;
+        final String finalCallerName = callerName;
+        final String finalCallId = callId;
+        final String finalFrom = from;
+        final String finalChatId = chatId;
+        final boolean finalIsGroup = isGroup;
+        final boolean finalIsVideo = isVideo;
+
         new Thread(() -> {
             try {
                 Bitmap bmp = IChatFirebaseMessagingService.fetchCircularBitmap(avatarToFetch);
                 if (bmp != null) {
-                    Notification updatedNotif = builder.setLargeIcon(bmp).build();
+                    Notification updatedNotif = NotificationHelper.buildCallNotification(
+                        this, finalCallId, finalFrom, finalCallerName, avatarToFetch, finalIsVideo, finalChatId, finalIsGroup, bmp
+                    );
                     NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                     if (nm != null) {
                         nm.notify(NOTIFICATION_ID, updatedNotif);
@@ -232,17 +172,15 @@ public class IncomingCallForegroundService extends Service {
         try {
             if (wakeLock != null && wakeLock.isHeld()) {
                 wakeLock.release();
+                wakeLock = null;
             }
         } catch (Exception ignored) {}
 
         try {
             stopForeground(true);
-            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            if (nm != null) {
-                nm.cancel(NOTIFICATION_ID);
-            }
         } catch (Exception ignored) {}
 
+        NotificationHelper.cancelCallNotification(this);
         stopSelf();
     }
 

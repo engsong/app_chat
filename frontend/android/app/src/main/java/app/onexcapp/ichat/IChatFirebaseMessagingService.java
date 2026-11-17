@@ -75,9 +75,12 @@ public class IChatFirebaseMessagingService extends MessagingService {
 
         // If call was ended or cancelled by caller, immediately dismiss incoming call screen & sound
         if ("call_ended".equalsIgnoreCase(type) || "call_cancelled".equalsIgnoreCase(type)) {
+            NotificationHelper.cancelCallNotification(this);
             Intent stopIntent = new Intent(this, IncomingCallForegroundService.class);
             stopIntent.setAction(IncomingCallForegroundService.ACTION_STOP_CALL);
-            startService(stopIntent);
+            try {
+                startService(stopIntent);
+            } catch (Exception ignored) {}
             return;
         }
 
@@ -106,23 +109,41 @@ public class IChatFirebaseMessagingService extends MessagingService {
             }
         } catch (Exception ignored) {}
 
-        // 2. Prepare intent targeting IncomingCallActivity
-        Intent callIntent = new Intent(this, IncomingCallActivity.class);
-        callIntent.addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK |
-            Intent.FLAG_ACTIVITY_CLEAR_TOP |
-            Intent.FLAG_ACTIVITY_SINGLE_TOP |
-            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-        );
-        callIntent.setAction("app.onexcapp.ichat.INCOMING_CALL");
-        callIntent.putExtra("isIncomingCall", true);
-        if (data != null) {
-            for (Map.Entry<String, String> entry : data.entrySet()) {
-                callIntent.putExtra(entry.getKey(), entry.getValue());
-            }
-        }
+        // 2. Extract call metadata
+        String callId = data != null ? data.get("callId") : null;
+        String from = data != null ? data.get("from") : null;
+        String callerName = data != null ? data.get("callerName") : null;
+        String callerAvatar = data != null ? data.get("callerAvatar") : null;
+        boolean isVideo = data != null && "true".equalsIgnoreCase(data.get("isVideo"));
+        String chatId = data != null ? data.get("chatId") : null;
+        boolean isGroup = data != null && "true".equalsIgnoreCase(data.get("isGroup"));
 
-        // 3. Start IncomingCallForegroundService with phoneCall serviceType
+        // 3. IMMEDIATELY show high-priority Heads-up Calling Notification with Answer & Decline buttons
+        NotificationHelper.showCallNotification(
+            this, callId, from, callerName, callerAvatar, isVideo, chatId, isGroup, null
+        );
+
+        // 4. Asynchronously fetch avatar icon to update notification with circular photo
+        final String avatarToFetch = callerAvatar;
+        final String finalCallerName = callerName;
+        final String finalCallId = callId;
+        final String finalFrom = from;
+        final String finalChatId = chatId;
+        final boolean finalIsGroup = isGroup;
+        final boolean finalIsVideo = isVideo;
+
+        networkExecutor.execute(() -> {
+            try {
+                Bitmap bmp = fetchCircularBitmap(avatarToFetch);
+                if (bmp != null) {
+                    NotificationHelper.showCallNotification(
+                        this, finalCallId, finalFrom, finalCallerName, avatarToFetch, finalIsVideo, finalChatId, finalIsGroup, bmp
+                    );
+                }
+            } catch (Exception ignored) {}
+        });
+
+        // 5. Try starting IncomingCallForegroundService with phoneCall serviceType
         Intent serviceIntent = new Intent(this, IncomingCallForegroundService.class);
         serviceIntent.setAction(IncomingCallForegroundService.ACTION_START_CALL);
         if (data != null) {
@@ -141,8 +162,23 @@ public class IChatFirebaseMessagingService extends MessagingService {
             e.printStackTrace();
         }
 
-        // 4. Also launch activity directly as backup
+        // 6. Also try launching activity directly as backup
         try {
+            Intent callIntent = new Intent(this, IncomingCallActivity.class);
+            callIntent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK |
+                Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                Intent.FLAG_ACTIVITY_SINGLE_TOP |
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            );
+            callIntent.setAction("app.onexcapp.ichat.INCOMING_CALL");
+            callIntent.putExtra("isIncomingCall", true);
+            if (data != null) {
+                for (Map.Entry<String, String> entry : data.entrySet()) {
+                    callIntent.putExtra(entry.getKey(), entry.getValue());
+                }
+            }
+
             if (Build.VERSION.SDK_INT >= 34) {
                 ActivityOptions options = ActivityOptions.makeBasic();
                 options.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);

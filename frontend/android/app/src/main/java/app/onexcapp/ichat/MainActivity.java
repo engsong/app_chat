@@ -70,6 +70,14 @@ public class MainActivity extends BridgeActivity {
         boolean isIncoming = intent.getBooleanExtra("isIncomingCall", false);
 
         if (autoAccept || isIncoming) {
+            // Dismiss call notification and stop ringing service
+            NotificationHelper.cancelCallNotification(this);
+            try {
+                Intent stopIntent = new Intent(this, IncomingCallForegroundService.class);
+                stopIntent.setAction(IncomingCallForegroundService.ACTION_STOP_CALL);
+                startService(stopIntent);
+            } catch (Exception ignored) {}
+
             String callId = intent.getStringExtra("callId");
             String from = intent.getStringExtra("from");
             String callerName = intent.getStringExtra("callerName");

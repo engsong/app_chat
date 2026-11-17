@@ -107,7 +107,7 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
     }
 
     const isCall = payload.data?.type === 'call' || payload.title?.toLowerCase().includes('call');
-    const channelId = isCall ? 'ichat_call_channel_v6' : 'ichat_message_channel_v6';
+    const channelId = isCall ? 'ichat_call_channel_v12' : 'ichat_message_channel_v12';
 
     stringifiedData.title = (payload.title || '').substring(0, 150);
     stringifiedData.body = (payload.body || '').substring(0, 300);

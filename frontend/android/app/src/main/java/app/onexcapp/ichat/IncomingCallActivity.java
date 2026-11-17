@@ -293,6 +293,7 @@ public class IncomingCallActivity extends Activity {
 
     private void stopForegroundCallService() {
         try {
+            NotificationHelper.cancelCallNotification(this);
             Intent stopIntent = new Intent(this, IncomingCallForegroundService.class);
             stopIntent.setAction(IncomingCallForegroundService.ACTION_STOP_CALL);
             startService(stopIntent);

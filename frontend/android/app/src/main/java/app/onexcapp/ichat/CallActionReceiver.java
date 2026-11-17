@@ -16,6 +16,7 @@ public class CallActionReceiver extends BroadcastReceiver {
                 stopIntent.setAction(IncomingCallForegroundService.ACTION_STOP_CALL);
                 context.startService(stopIntent);
 
+                NotificationHelper.cancelCallNotification(context);
                 NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
                 if (nm != null) {
                     nm.cancel(IncomingCallForegroundService.NOTIFICATION_ID);
