@@ -88,19 +88,45 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
     // Convert all data dictionary values to strings as required by FCM HTTP v1 / Firebase Admin
     const stringifiedData: Record<string, string> = {};
     if (payload.data && typeof payload.data === 'object') {
+      const senderOrCallerId = payload.data.senderId || payload.data.from || payload.data.userId || '';
       Object.entries(payload.data).forEach(([k, v]) => {
-        stringifiedData[k] = typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
+        let val = typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
+        // FCM strictly limits total data payload to 4096 bytes (4KB).
+        // Never put base64 data URLs into FCM push data!
+        if (val.startsWith('data:')) {
+          if (k.toLowerCase().includes('avatar') && senderOrCallerId) {
+            val = `https://chat.on-excapp.app/api/users/${senderOrCallerId}/avatar`;
+          } else {
+            val = '';
+          }
+        } else if (val.length > 500) {
+          val = val.substring(0, 500);
+        }
+        stringifiedData[k] = val;
       });
     }
 
     const isCall = payload.data?.type === 'call' || payload.title?.toLowerCase().includes('call');
-    const channelId = isCall ? 'ichat_call_channel_v5' : 'ichat_message_channel_v5';
+    const channelId = isCall ? 'ichat_call_channel_v6' : 'ichat_message_channel_v6';
 
-    stringifiedData.title = payload.title;
-    stringifiedData.body = payload.body;
+    stringifiedData.title = (payload.title || '').substring(0, 150);
+    stringifiedData.body = (payload.body || '').substring(0, 300);
     stringifiedData.channelId = channelId;
     if (!stringifiedData.type) {
       stringifiedData.type = isCall ? 'call' : 'chat';
+    }
+
+    // Safety check: ensure total data length is strictly well under 3500 bytes (FCM limit 4096 bytes)
+    let payloadSize = JSON.stringify(stringifiedData).length;
+    if (payloadSize > 3500) {
+      console.warn(`[FCM] stringifiedData is large (${payloadSize} bytes), compressing fields...`);
+      for (const k of Object.keys(stringifiedData)) {
+        if (!['type', 'chatId', 'callId', 'from', 'senderId', 'title', 'body', 'channelId'].includes(k)) {
+          if (stringifiedData[k].length > 100) {
+            stringifiedData[k] = stringifiedData[k].substring(0, 100);
+          }
+        }
+      }
     }
 
     const message: any = {
@@ -155,7 +181,7 @@ export async function sendPushToUser(
   const pushPayload = JSON.stringify({
     title: payload.title,
     body: payload.body,
-    icon: payload.icon || '/logo.png',
+    icon: (payload.icon && !payload.icon.startsWith('data:')) ? payload.icon : '/logo.png',
     badge: '/logo.png',
     tag: payload.tag || 'ichat-notification',
     data: payload.data || {},

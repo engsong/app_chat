@@ -208,16 +208,20 @@ export function saveAndBroadcastMessage(data: {
         else if (type === 'location') body = '📍 Location shared';
         else if (type === 'call') body = content || '📞 Call';
 
+        const avatarUrl = (sender?.avatar && !sender.avatar.startsWith('data:'))
+          ? sender.avatar
+          : `https://chat.on-excapp.app/api/users/${senderId}/avatar`;
+
         sendPushToUser(memberId, {
           title,
           body,
-          icon: sender?.avatar || '/logo.png',
+          icon: avatarUrl,
           tag: `chat-${chat.id}`,
           data: {
             chatId: chat.id,
             senderId,
             senderName,
-            senderAvatar: sender?.avatar || '',
+            senderAvatar: avatarUrl,
             chatName: chat.name || '',
             isGroup: String(!!chat.isGroup),
             url: 'https://chat.on-excapp.app',
@@ -597,11 +601,15 @@ export function setupSocketHandlers(io: Server) {
         });
       }
 
+      const callerAvatarUrl = (data.callerAvatar && !data.callerAvatar.startsWith('data:'))
+        ? data.callerAvatar
+        : `https://chat.on-excapp.app/api/users/${data.from}/avatar`;
+
       // Send Push notification for incoming call (wakes screen & shows WhatsApp full-screen UI)
       sendPushToUser(data.userToCall, {
         title: data.isVideo ? '📹 Incoming Video Call' : '📞 Incoming Voice Call',
         body: `${data.callerName} is calling you... Tap to answer.`,
-        icon: data.callerAvatar || '/logo.png',
+        icon: callerAvatarUrl,
         tag: 'incoming-call',
         requireInteraction: true,
         data: {
@@ -609,7 +617,7 @@ export function setupSocketHandlers(io: Server) {
           type: 'call',
           callId,
           callerName: data.callerName,
-          callerAvatar: data.callerAvatar || '',
+          callerAvatar: callerAvatarUrl,
           isVideo: String(!!data.isVideo),
           chatId: targetChatId || '',
           from: data.from,

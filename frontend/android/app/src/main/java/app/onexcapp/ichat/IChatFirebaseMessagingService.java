@@ -181,7 +181,11 @@ public class IChatFirebaseMessagingService extends MessagingService {
 
         // Execute on background thread to download sender avatar and build MessagingStyle notification
         networkExecutor.execute(() -> {
-            Bitmap avatarBitmap = fetchCircularBitmap(senderAvatar);
+            String avatarUrl = senderAvatar;
+            if ((avatarUrl == null || avatarUrl.trim().isEmpty()) && senderId != null) {
+                avatarUrl = "https://chat.on-excapp.app/api/users/" + senderId + "/avatar";
+            }
+            Bitmap avatarBitmap = fetchCircularBitmap(avatarUrl);
             IconCompat avatarIcon = avatarBitmap != null ? IconCompat.createWithBitmap(avatarBitmap) : null;
 
             // Sender Person
@@ -264,6 +268,18 @@ public class IChatFirebaseMessagingService extends MessagingService {
     public static Bitmap fetchCircularBitmap(String urlStr) {
         if (urlStr == null || urlStr.trim().isEmpty()) return null;
         try {
+            if (urlStr.startsWith("data:image/")) {
+                int comma = urlStr.indexOf(",");
+                if (comma != -1) {
+                    byte[] decoded = android.util.Base64.decode(urlStr.substring(comma + 1), android.util.Base64.DEFAULT);
+                    Bitmap raw = BitmapFactory.decodeByteArray(decoded, 0, decoded.length);
+                    if (raw != null) {
+                        return toCircular(raw);
+                    }
+                }
+                return null;
+            }
+
             String fullUrl = urlStr;
             if (!fullUrl.startsWith("http://") && !fullUrl.startsWith("https://")) {
                 fullUrl = "https://chat.on-excapp.app" + (fullUrl.startsWith("/") ? "" : "/") + fullUrl;
@@ -279,17 +295,21 @@ public class IChatFirebaseMessagingService extends MessagingService {
             is.close();
             if (raw == null) return null;
 
-            int dim = Math.min(raw.getWidth(), raw.getHeight());
-            Bitmap output = Bitmap.createBitmap(dim, dim, Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(output);
-            Paint paint = new Paint();
-            paint.setAntiAlias(true);
-            paint.setShader(new BitmapShader(raw, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP));
-            float r = dim / 2f;
-            canvas.drawCircle(r, r, r, paint);
-            return output;
+            return toCircular(raw);
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static Bitmap toCircular(Bitmap raw) {
+        int dim = Math.min(raw.getWidth(), raw.getHeight());
+        Bitmap output = Bitmap.createBitmap(dim, dim, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(output);
+        Paint paint = new Paint();
+        paint.setAntiAlias(true);
+        paint.setShader(new BitmapShader(raw, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP));
+        float r = dim / 2f;
+        canvas.drawCircle(r, r, r, paint);
+        return output;
     }
 }

@@ -126,6 +126,36 @@ apiRouter.get('/users', (req, res) => {
   res.json(users);
 });
 
+// Serve user profile avatar (handles base64 data URLs, external URLs, or default avatar)
+apiRouter.get('/users/:id/avatar', (req, res) => {
+  const user = store.users.get(req.params.id);
+  const avatar = user?.avatar;
+  if (!avatar) {
+    return res.redirect(302, '/logo.png');
+  }
+
+  if (avatar.startsWith('data:image/')) {
+    const matches = avatar.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+    if (matches && matches.length === 3) {
+      const mime = `image/${matches[1]}`;
+      const buf = Buffer.from(matches[2], 'base64');
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(buf);
+    }
+  }
+
+  if (avatar.startsWith('http://') || avatar.startsWith('https://')) {
+    return res.redirect(302, avatar);
+  }
+
+  if (avatar.startsWith('/')) {
+    return res.redirect(302, avatar);
+  }
+
+  return res.redirect(302, '/logo.png');
+});
+
 // 1. User Registration (Create New Account)
 apiRouter.post('/auth/register', (req, res) => {
   const {

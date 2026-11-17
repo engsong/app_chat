@@ -43,6 +43,7 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         wakeAndUnlock();
+        checkAllRequiredPermissions();
     }
 
     private void handleCallIntent(Intent intent) {

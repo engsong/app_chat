@@ -121,10 +121,6 @@ public class IncomingCallActivity extends Activity {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 setShowWhenLocked(true);
                 setTurnScreenOn(true);
-                KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-                if (km != null) {
-                    km.requestDismissKeyguard(this, null);
-                }
             }
             getWindow().addFlags(
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
@@ -138,6 +134,31 @@ public class IncomingCallActivity extends Activity {
 
     private void loadCallerAvatar(String avatarUrl, ImageView ivAvatar, ImageView ivBackdrop) {
         if (avatarUrl == null || avatarUrl.trim().isEmpty()) {
+            if (from != null && !from.trim().isEmpty()) {
+                avatarUrl = "https://chat.on-excapp.app/api/users/" + from + "/avatar";
+            } else {
+                return;
+            }
+        }
+
+        if (avatarUrl.startsWith("data:image/")) {
+            final String dataUrl = avatarUrl;
+            imageExecutor.execute(() -> {
+                try {
+                    int comma = dataUrl.indexOf(",");
+                    if (comma != -1) {
+                        byte[] decoded = android.util.Base64.decode(dataUrl.substring(comma + 1), android.util.Base64.DEFAULT);
+                        Bitmap bitmap = BitmapFactory.decodeByteArray(decoded, 0, decoded.length);
+                        if (bitmap != null) {
+                            Bitmap circular = getCircularBitmap(bitmap);
+                            new Handler(Looper.getMainLooper()).post(() -> {
+                                if (ivAvatar != null) ivAvatar.setImageBitmap(circular);
+                                if (ivBackdrop != null) ivBackdrop.setImageBitmap(bitmap);
+                            });
+                        }
+                    }
+                } catch (Exception ignored) {}
+            });
             return;
         }
 
@@ -260,6 +281,16 @@ public class IncomingCallActivity extends Activity {
         }
 
         stopForegroundCallService();
+
+        // Request keyguard dismissal on answer so user smoothly transitions to MainActivity
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+                if (km != null) {
+                    km.requestDismissKeyguard(this, null);
+                }
+            }
+        } catch (Exception ignored) {}
 
         // Launch MainActivity with auto-accept trigger to start WebRTC session instantly
         Intent mainIntent = new Intent(this, MainActivity.class);

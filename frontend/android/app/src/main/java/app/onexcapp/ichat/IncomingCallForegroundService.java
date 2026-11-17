@@ -124,33 +124,11 @@ public class IncomingCallForegroundService extends Service {
 
         Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
 
-        // 4. Build Caller Person and CallStyle for prominent Lock Screen Calling Banner
-        Bitmap callerAvatarBitmap = IChatFirebaseMessagingService.fetchCircularBitmap(callerAvatar);
-        IconCompat callerIcon = callerAvatarBitmap != null ? IconCompat.createWithBitmap(callerAvatarBitmap) : null;
-
-        Person.Builder callerPersonBuilder = new Person.Builder()
-            .setName(callerName)
-            .setImportant(true);
-        if (callerIcon != null) {
-            callerPersonBuilder.setIcon(callerIcon);
-        }
-        Person callerPerson = callerPersonBuilder.build();
-
-        NotificationCompat.CallStyle callStyle = NotificationCompat.CallStyle.forIncomingCall(
-            callerPerson,
-            declinePendingIntent,
-            fullScreenPendingIntent
-        );
-        if (isVideo) {
-            callStyle.setIsVideo(true);
-        }
-
+        // 4. Build high-priority call notification with full-screen intent
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NotificationHelper.CALL_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_ichat) // App badge at bottom-right of avatar
-            .setContentTitle("Incoming " + callType)
+            .setSmallIcon(R.drawable.ic_stat_ichat)
+            .setContentTitle(isVideo ? "Incoming Video Call" : "Incoming Voice Call")
             .setContentText(callerName + " is calling you...")
-            .setStyle(callStyle)
-            .addPerson(callerPerson)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -163,13 +141,9 @@ public class IncomingCallForegroundService extends Service {
             .addAction(R.drawable.ic_call_decline, "Decline", declinePendingIntent)
             .addAction(R.drawable.ic_call_accept, "Answer", fullScreenPendingIntent);
 
-        if (callerAvatarBitmap != null) {
-            builder.setLargeIcon(callerAvatarBitmap);
-        }
-
         Notification notification = builder.build();
 
-        // 5. Start Foreground Service with phoneCall type
+        // 5. Start Foreground Service immediately with phoneCall type
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 int serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL;
@@ -194,6 +168,21 @@ public class IncomingCallForegroundService extends Service {
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+        // 7. Asynchronously fetch avatar icon to update notification without blocking main thread
+        final String avatarToFetch = callerAvatar;
+        new Thread(() -> {
+            try {
+                Bitmap bmp = IChatFirebaseMessagingService.fetchCircularBitmap(avatarToFetch);
+                if (bmp != null) {
+                    Notification updatedNotif = builder.setLargeIcon(bmp).build();
+                    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                    if (nm != null) {
+                        nm.notify(NOTIFICATION_ID, updatedNotif);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }).start();
 
         return START_NOT_STICKY;
     }
