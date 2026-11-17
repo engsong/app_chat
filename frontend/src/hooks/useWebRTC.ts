@@ -120,8 +120,17 @@ export function useWebRTC(
     if (video) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: {
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+            frameRate: { ideal: 30, max: 30 },
+            facingMode: 'user',
+          },
         });
         localStreamRef.current = stream;
         return stream;
@@ -132,7 +141,11 @@ export function useWebRTC(
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
       localStreamRef.current = stream;
       return stream;
@@ -435,7 +448,12 @@ export function useWebRTC(
       // If call is currently voice-only or doesn't have video track, acquire camera
       if (!videoTrack) {
         const camStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+          video: {
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+            frameRate: { ideal: 30, max: 30 },
+            facingMode: 'user',
+          },
         });
         videoTrack = camStream.getVideoTracks()[0];
         if (videoTrack) {

@@ -219,9 +219,9 @@ export const App: React.FC = () => {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 2000,
+      timeout: 10000,
     });
     setSocket(s);
 
@@ -784,8 +784,18 @@ export const App: React.FC = () => {
       createdAt: new Date().toISOString(),
     };
 
-    // Optimistically add message so sender on PC sees it immediately
+    // Optimistically add message so sender sees it immediately (0ms instant UI)
     setMessages((prev) => [...prev, optimisticMsg]);
+    setChats((prev) => {
+      const idx = prev.findIndex((c) => c.id === activeChatId);
+      if (idx === -1) return prev;
+      const target = {
+        ...prev[idx],
+        lastMessage: optimisticMsg,
+        lastMessageAt: new Date().toISOString(),
+      };
+      return [target, ...prev.filter((c) => c.id !== activeChatId)];
+    });
 
     // Primary: Emit via socket if connected
     if (socket && socket.connected) {
