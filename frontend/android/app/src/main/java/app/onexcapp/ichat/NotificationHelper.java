@@ -11,8 +11,8 @@ import android.net.Uri;
 import android.os.Build;
 
 public class NotificationHelper {
-    public static final String CALL_CHANNEL_ID = "ichat_call_channel_v4";
-    public static final String MSG_CHANNEL_ID = "ichat_message_channel_v4";
+    public static final String CALL_CHANNEL_ID = "ichat_call_channel_v5";
+    public static final String MSG_CHANNEL_ID = "ichat_message_channel_v5";
 
     public static void createChannels(Context context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

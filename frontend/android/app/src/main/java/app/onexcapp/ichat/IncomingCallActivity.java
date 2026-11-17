@@ -97,6 +97,25 @@ public class IncomingCallActivity extends Activity {
         timeoutHandler.postDelayed(timeoutRunnable, 60000);
     }
 
+    @Override
+    public void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        setupLockScreenFlags();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        setupLockScreenFlags();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        setupLockScreenFlags();
+    }
+
     private void setupLockScreenFlags() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {

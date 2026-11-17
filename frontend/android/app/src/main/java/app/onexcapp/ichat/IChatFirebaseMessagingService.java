@@ -19,10 +19,8 @@ public class IChatFirebaseMessagingService extends MessagingService {
 
     @Override
     public void onMessageReceived(@NonNull RemoteMessage remoteMessage) {
-        // Ensure notification channels exist
+        // 1. Ensure high-importance notification channels exist in this process
         NotificationHelper.createChannels(this);
-
-        super.onMessageReceived(remoteMessage);
 
         Map<String, String> data = remoteMessage.getData();
         String type = data != null ? data.get("type") : null;
@@ -40,7 +38,7 @@ public class IChatFirebaseMessagingService extends MessagingService {
             body = data.get("body");
         }
 
-        // If call ended or cancelled, stop foreground service
+        // If call was ended or cancelled by caller, immediately dismiss incoming call screen & sound
         if ("call_ended".equalsIgnoreCase(type) || "call_cancelled".equalsIgnoreCase(type)) {
             Intent stopIntent = new Intent(this, IncomingCallForegroundService.class);
             stopIntent.setAction(IncomingCallForegroundService.ACTION_STOP_CALL);
@@ -54,17 +52,19 @@ public class IChatFirebaseMessagingService extends MessagingService {
         if (isCall) {
             handleIncomingCallPush(data);
         } else {
+            // Only pass normal chat messages to Capacitor push plugin
+            super.onMessageReceived(remoteMessage);
             handleChatMessagePush(title, body, data);
         }
     }
 
     private void handleIncomingCallPush(Map<String, String> data) {
-        // 1. Wake screen immediately
+        // 1. Wake screen immediately with high-priority WakeLock
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (pm != null) {
                 PowerManager.WakeLock wakeLock = pm.newWakeLock(
-                    PowerManager.PARTIAL_WAKE_LOCK |
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK |
                     PowerManager.ACQUIRE_CAUSES_WAKEUP |
                     PowerManager.ON_AFTER_RELEASE,
                     "ichat:fcm_call_wake"
@@ -73,7 +73,23 @@ public class IChatFirebaseMessagingService extends MessagingService {
             }
         } catch (Exception ignored) {}
 
-        // 2. Start IncomingCallForegroundService with phoneCall serviceType
+        // 2. Prepare intent targeting IncomingCallActivity
+        Intent callIntent = new Intent(this, IncomingCallActivity.class);
+        callIntent.addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK |
+            Intent.FLAG_ACTIVITY_CLEAR_TOP |
+            Intent.FLAG_ACTIVITY_SINGLE_TOP |
+            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+        );
+        callIntent.setAction("app.onexcapp.ichat.INCOMING_CALL");
+        callIntent.putExtra("isIncomingCall", true);
+        if (data != null) {
+            for (Map.Entry<String, String> entry : data.entrySet()) {
+                callIntent.putExtra(entry.getKey(), entry.getValue());
+            }
+        }
+
+        // 3. Start IncomingCallForegroundService with phoneCall serviceType
         Intent serviceIntent = new Intent(this, IncomingCallForegroundService.class);
         serviceIntent.setAction(IncomingCallForegroundService.ACTION_START_CALL);
         if (data != null) {
@@ -91,6 +107,11 @@ public class IChatFirebaseMessagingService extends MessagingService {
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+        // 4. Also launch activity directly as backup
+        try {
+            startActivity(callIntent);
+        } catch (Exception ignored) {}
     }
 
     private void handleChatMessagePush(String title, String body, Map<String, String> data) {

@@ -1,5 +1,6 @@
 package app.onexcapp.ichat;
 
+import android.app.ActivityOptions;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -10,6 +11,7 @@ import android.content.pm.ServiceInfo;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.os.PowerManager;
 import androidx.annotation.Nullable;
@@ -41,7 +43,7 @@ public class IncomingCallForegroundService extends Service {
             return START_NOT_STICKY;
         }
 
-        // 1. Acquire WakeLock to turn on screen and prevent CPU sleep
+        // 1. Acquire WakeLock to wake up screen immediately
         acquireWakeLock();
 
         // 2. Extract call metadata
@@ -77,12 +79,33 @@ public class IncomingCallForegroundService extends Service {
             pFlags |= PendingIntent.FLAG_IMMUTABLE;
         }
 
-        PendingIntent fullScreenPendingIntent = PendingIntent.getActivity(
-            this,
-            NOTIFICATION_ID,
-            fullScreenIntent,
-            pFlags
-        );
+        // Android 14+ (API 34+) explicit authorization to start activity from background
+        Bundle activityOptionsBundle = null;
+        if (Build.VERSION.SDK_INT >= 34) {
+            try {
+                ActivityOptions options = ActivityOptions.makeBasic();
+                options.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                activityOptionsBundle = options.toBundle();
+            } catch (Exception ignored) {}
+        }
+
+        PendingIntent fullScreenPendingIntent;
+        if (activityOptionsBundle != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+            fullScreenPendingIntent = PendingIntent.getActivity(
+                this,
+                NOTIFICATION_ID,
+                fullScreenIntent,
+                pFlags,
+                activityOptionsBundle
+            );
+        } else {
+            fullScreenPendingIntent = PendingIntent.getActivity(
+                this,
+                NOTIFICATION_ID,
+                fullScreenIntent,
+                pFlags
+            );
+        }
 
         // Decline Intent
         Intent declineIntent = new Intent(this, CallActionReceiver.class);
@@ -127,12 +150,18 @@ public class IncomingCallForegroundService extends Service {
             }
         } catch (Exception e) {
             e.printStackTrace();
-            startForeground(NOTIFICATION_ID, notification);
+            try {
+                startForeground(NOTIFICATION_ID, notification);
+            } catch (Exception ignored) {}
         }
 
-        // 6. Directly launch IncomingCallActivity now that we are an active phoneCall foreground service
+        // 6. Directly launch IncomingCallActivity over lock screen / home screen
         try {
-            startActivity(fullScreenIntent);
+            if (activityOptionsBundle != null) {
+                startActivity(fullScreenIntent, activityOptionsBundle);
+            } else {
+                startActivity(fullScreenIntent);
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -145,7 +174,7 @@ public class IncomingCallForegroundService extends Service {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (pm != null && (wakeLock == null || !wakeLock.isHeld())) {
                 wakeLock = pm.newWakeLock(
-                    PowerManager.PARTIAL_WAKE_LOCK |
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK |
                     PowerManager.ACQUIRE_CAUSES_WAKEUP |
                     PowerManager.ON_AFTER_RELEASE,
                     "ichat:foreground_call_wake"
@@ -153,7 +182,18 @@ public class IncomingCallForegroundService extends Service {
                 wakeLock.acquire(45000); // 45s wake lock for call ring
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            try {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null && (wakeLock == null || !wakeLock.isHeld())) {
+                    wakeLock = pm.newWakeLock(
+                        PowerManager.PARTIAL_WAKE_LOCK |
+                        PowerManager.ACQUIRE_CAUSES_WAKEUP |
+                        PowerManager.ON_AFTER_RELEASE,
+                        "ichat:foreground_call_wake_partial"
+                    );
+                    wakeLock.acquire(45000);
+                }
+            } catch (Exception ignored) {}
         }
     }
 
