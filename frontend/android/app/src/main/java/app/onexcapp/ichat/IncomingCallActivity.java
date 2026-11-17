@@ -18,6 +18,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.Vibrator;
 import android.view.View;
 import android.view.WindowManager;
@@ -33,6 +34,7 @@ import java.util.concurrent.Executors;
 public class IncomingCallActivity extends Activity {
     private Ringtone ringtone;
     private Vibrator vibrator;
+    private PowerManager.WakeLock wakeLock;
     private Handler timeoutHandler = new Handler(Looper.getMainLooper());
     private Runnable timeoutRunnable;
     private ExecutorService imageExecutor = Executors.newSingleThreadExecutor();
@@ -128,11 +130,40 @@ public class IncomingCallActivity extends Activity {
         setupLockScreenFlags();
     }
 
+    private void acquireScreenWake() {
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null && (wakeLock == null || !wakeLock.isHeld())) {
+                wakeLock = pm.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK |
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP |
+                    PowerManager.ON_AFTER_RELEASE,
+                    "ichat:incoming_activity_wake"
+                );
+                wakeLock.acquire(60000);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void releaseScreenWake() {
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.release();
+                wakeLock = null;
+            }
+        } catch (Exception ignored) {}
+    }
+
     private void setupLockScreenFlags() {
         try {
+            acquireScreenWake();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 setShowWhenLocked(true);
                 setTurnScreenOn(true);
+                KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+                if (km != null) {
+                    km.requestDismissKeyguard(this, null);
+                }
             }
             getWindow().addFlags(
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
@@ -329,6 +360,7 @@ public class IncomingCallActivity extends Activity {
     @Override
     protected void onDestroy() {
         stopRingtoneAndVibration();
+        releaseScreenWake();
         if (timeoutHandler != null && timeoutRunnable != null) {
             timeoutHandler.removeCallbacks(timeoutRunnable);
         }

@@ -128,7 +128,12 @@ public class IncomingCallForegroundService extends Service {
 
         Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
 
-        // 4. Build high-priority call notification with full-screen intent
+        androidx.core.app.Person callerPerson = new androidx.core.app.Person.Builder()
+            .setName(callerName)
+            .setImportant(true)
+            .build();
+
+        // 4. Build high-priority call notification with full-screen intent and native CallStyle
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NotificationHelper.CALL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_ichat)
             .setContentTitle(isVideo ? "Incoming Video Call" : "Incoming Voice Call")
@@ -142,6 +147,10 @@ public class IncomingCallForegroundService extends Service {
             .setVibrate(new long[]{0, 1000, 500, 1000, 500, 1000})
             .setContentIntent(fullScreenPendingIntent)
             .setFullScreenIntent(fullScreenPendingIntent, true)
+            .setStyle(
+                NotificationCompat.CallStyle.forIncomingCall(callerPerson, declinePendingIntent, fullScreenPendingIntent)
+                    .setIsVideo(isVideo)
+            )
             .addAction(R.drawable.ic_call_decline, "Decline", declinePendingIntent)
             .addAction(R.drawable.ic_call_accept, "Answer", fullScreenPendingIntent);
 

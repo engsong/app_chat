@@ -11,6 +11,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Shader;
 import android.media.RingtoneManager;
+import android.app.ActivityOptions;
 import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
@@ -142,7 +143,13 @@ public class IChatFirebaseMessagingService extends MessagingService {
 
         // 4. Also launch activity directly as backup
         try {
-            startActivity(callIntent);
+            if (Build.VERSION.SDK_INT >= 34) {
+                ActivityOptions options = ActivityOptions.makeBasic();
+                options.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                startActivity(callIntent, options.toBundle());
+            } else {
+                startActivity(callIntent);
+            }
         } catch (Exception ignored) {}
     }
 

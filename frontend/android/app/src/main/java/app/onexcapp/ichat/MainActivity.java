@@ -16,6 +16,8 @@ import android.view.WindowManager;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private boolean hasCheckedPermissionsOnce = false;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         wakeAndUnlock();
@@ -121,6 +123,9 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void checkAllRequiredPermissions() {
+        if (hasCheckedPermissionsOnce) return;
+        hasCheckedPermissionsOnce = true;
+
         // 1. Post Notifications (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {

@@ -25,11 +25,13 @@ import {
   PhoneMissed,
   MoreVertical,
   Star,
-  CornerUpRight
+  CornerUpRight,
+  Radio
 } from 'lucide-react';
 import { Chat, Message, User, Product, QuickReply } from '../../types/index.js';
 import { soundEffects } from '../../utils/audioTones.js';
 import { EmojiPicker } from './EmojiPicker.js';
+import { LocationPickerModal } from './LocationPickerModal.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
 
 interface ChatAreaProps {
@@ -88,6 +90,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [showChatMenu, setShowChatMenu] = useState(false);
   const [showQuickReplyPicker, setShowQuickReplyPicker] = useState(false);
   const [filteredQuickReplies, setFilteredQuickReplies] = useState<QuickReply[]>([]);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
   
   // WhatsApp-style Message Selection state
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
@@ -227,6 +230,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         e.preventDefault();
         return;
       }
+      if (showLocationPicker) {
+        setShowLocationPicker(false);
+        e.preventDefault();
+        return;
+      }
       if (showQuickReplyPicker) {
         setShowQuickReplyPicker(false);
         e.preventDefault();
@@ -245,6 +253,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     showAttachMenu,
     showChatMenu,
     showQuickReplyPicker,
+    showLocationPicker,
   ]);
 
   // Auto-scroll to latest message safely inside the container (prevents whole window from scrolling)
@@ -348,38 +357,39 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     setShowAttachMenu(false);
   };
 
-  // 3. Send Location
+  // 3. Send Location (Opens WhatsApp-style interactive map & places picker)
   const handleSendLocation = () => {
     setShowAttachMenu(false);
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser.');
-      return;
-    }
+    setShowLocationPicker(true);
+  };
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
-        const metadata = JSON.stringify({ lat, lng, mapUrl });
-        onSendMessage(
-          `📍 Location: ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-          'location',
-          metadata
-        );
-        soundEffects.playMessagePop();
-      },
-      (err) => {
-        console.warn('Geolocation error:', err);
-        // Fallback or prompt
-        const manualLoc = prompt('Enter a city or location to share:', 'Vientiane, Laos');
-        if (manualLoc) {
-          onSendMessage(`📍 Location: ${manualLoc}`, 'location');
-          soundEffects.playMessagePop();
-        }
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+  const handleSendLocationData = (data: {
+    name: string;
+    address: string;
+    lat: number;
+    lng: number;
+    accuracy?: number;
+    isLive?: boolean;
+    duration?: number;
+  }) => {
+    const mapUrl = `https://www.google.com/maps?q=${data.lat},${data.lng}`;
+    const metadata = JSON.stringify({
+      name: data.name,
+      address: data.address,
+      lat: data.lat,
+      lng: data.lng,
+      accuracy: data.accuracy,
+      mapUrl,
+      isLive: data.isLive,
+      duration: data.duration,
+    });
+
+    const content = data.isLive
+      ? `📍 Live Location: ${data.name}`
+      : `📍 ${data.name}`;
+
+    onSendMessage(content, 'location', metadata);
+    soundEffects.playMessagePop();
   };
 
   // 4. Real Voice Note Recording
@@ -819,21 +829,31 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 {msg.type === 'location' && (
                   (() => {
                     let mapUrl = 'https://maps.google.com';
+                    let placeName = 'Shared Location';
+                    let placeAddress = msg.content.replace(/^📍\s*(Live Location:\s*)?/, '');
+                    let isLive = false;
                     if (msg.metadata) {
                       try {
                         const parsed = JSON.parse(msg.metadata);
                         mapUrl = parsed.mapUrl || `https://maps.google.com?q=${parsed.lat},${parsed.lng}`;
+                        placeName = parsed.name || placeName;
+                        placeAddress = parsed.address || placeAddress;
+                        isLive = !!parsed.isLive;
                       } catch (e) {}
                     }
                     return (
-                      <div className="p-2.5 bg-[#111b21] rounded-xl border border-[#2a3942] min-w-[200px] sm:min-w-[240px]">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-500 flex items-center justify-center flex-shrink-0">
-                            <MapPin className="w-4 h-4" />
+                      <div className="p-3 bg-[#111b21] rounded-2xl border border-[#2a3942] min-w-[220px] sm:min-w-[270px]">
+                        <div className="flex items-start gap-3 mb-2.5">
+                          <div
+                            className={`w-9 h-9 rounded-full ${
+                              isLive ? 'bg-[#00a884]/20 text-[#00a884]' : 'bg-rose-500/20 text-rose-500'
+                            } flex items-center justify-center flex-shrink-0 mt-0.5`}
+                          >
+                            {isLive ? <Radio className="w-5 h-5 animate-pulse" /> : <MapPin className="w-5 h-5" />}
                           </div>
-                          <div className="min-w-0">
-                            <h5 className="font-semibold text-xs text-white">Shared Location</h5>
-                            <p className="text-[10px] text-[#8696a0] truncate">{msg.content}</p>
+                          <div className="min-w-0 flex-1">
+                            <h5 className="font-semibold text-xs text-white truncate">{placeName}</h5>
+                            <p className="text-[11px] text-[#8696a0] line-clamp-2 mt-0.5">{placeAddress}</p>
                           </div>
                         </div>
 
@@ -841,7 +861,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                           href={mapUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="w-full py-1.5 px-3 rounded-lg bg-[#202c33] hover:bg-[#00a884] text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition-colors"
+                          className="w-full py-2 px-3 rounded-xl bg-[#202c33] hover:bg-[#00a884] text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition-colors"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
                           <span>Open in Google Maps</span>
@@ -1371,6 +1391,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </div>
         </div>
       )}
+
+      {/* WhatsApp-Style Location Picker Modal */}
+      <LocationPickerModal
+        isOpen={showLocationPicker}
+        onClose={() => setShowLocationPicker(false)}
+        onSendLocation={handleSendLocationData}
+      />
     </div>
   );
 };
