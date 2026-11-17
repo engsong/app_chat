@@ -46,6 +46,22 @@ public class MainActivity extends BridgeActivity {
         checkAllRequiredPermissions();
     }
 
+    @Override
+    public void onBackPressed() {
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().evaluateJavascript(
+                "(function() { return !!(window.__handleAndroidBackButton && window.__handleAndroidBackButton()); })();",
+                result -> {
+                    if (!"true".equals(result)) {
+                        moveTaskToBack(true);
+                    }
+                }
+            );
+        } else {
+            moveTaskToBack(true);
+        }
+    }
+
     private void handleCallIntent(Intent intent) {
         if (intent == null) return;
         boolean autoAccept = intent.getBooleanExtra("autoAcceptCall", false);

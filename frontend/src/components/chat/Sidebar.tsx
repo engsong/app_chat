@@ -110,6 +110,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
   }, [showMoreMenu]);
 
+  // Handle back button for sidebar elements (cancel chat selection, close menus, clear search)
+  useEffect(() => {
+    const handleInternalBack = (e: Event) => {
+      if (showDeleteChatsModal) {
+        setShowDeleteChatsModal(false);
+        e.preventDefault();
+        return;
+      }
+      if (selectedChatIds.length > 0) {
+        setSelectedChatIds([]);
+        e.preventDefault();
+        return;
+      }
+      if (showMoreMenu) {
+        setShowMoreMenu(false);
+        e.preventDefault();
+        return;
+      }
+      if (searchQuery) {
+        setSearchQuery('');
+        e.preventDefault();
+        return;
+      }
+    };
+
+    window.addEventListener('chat_internal_back', handleInternalBack);
+    return () => {
+      window.removeEventListener('chat_internal_back', handleInternalBack);
+    };
+  }, [showDeleteChatsModal, selectedChatIds, showMoreMenu, searchQuery]);
+
   const handleEnableNotifications = async () => {
     const res = await requestNotificationPermission();
     setNotifPermission(res);

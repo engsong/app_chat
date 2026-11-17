@@ -199,6 +199,54 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     };
   }, [showAttachMenu, showEmojiPicker, showChatMenu]);
 
+  // Handle back button for internal sub-elements (cancel selection, close menus)
+  useEffect(() => {
+    const handleInternalBack = (e: Event) => {
+      if (showDeleteConfirmModal) {
+        setShowDeleteConfirmModal(false);
+        e.preventDefault();
+        return;
+      }
+      if (selectedMessageIds.length > 0) {
+        setSelectedMessageIds([]);
+        e.preventDefault();
+        return;
+      }
+      if (showEmojiPicker) {
+        setShowEmojiPicker(false);
+        e.preventDefault();
+        return;
+      }
+      if (showAttachMenu) {
+        setShowAttachMenu(false);
+        e.preventDefault();
+        return;
+      }
+      if (showChatMenu) {
+        setShowChatMenu(false);
+        e.preventDefault();
+        return;
+      }
+      if (showQuickReplyPicker) {
+        setShowQuickReplyPicker(false);
+        e.preventDefault();
+        return;
+      }
+    };
+
+    window.addEventListener('chat_internal_back', handleInternalBack);
+    return () => {
+      window.removeEventListener('chat_internal_back', handleInternalBack);
+    };
+  }, [
+    showDeleteConfirmModal,
+    selectedMessageIds,
+    showEmojiPicker,
+    showAttachMenu,
+    showChatMenu,
+    showQuickReplyPicker,
+  ]);
+
   // Auto-scroll to latest message safely inside the container (prevents whole window from scrolling)
   useEffect(() => {
     if (messagesContainerRef.current) {

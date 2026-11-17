@@ -19,6 +19,7 @@ import { useWebRTC } from './hooks/useWebRTC.js';
 import { User, Chat, Message, Product, QuickReply, Label, StatusItem } from './types/index.js';
 import { soundEffects } from './utils/audioTones.js';
 import { getAvatarUrl } from './utils/avatar.js';
+import { App as CapApp } from '@capacitor/app';
 import {
   registerServiceWorker,
   requestNotificationPermission,
@@ -55,6 +56,120 @@ export const App: React.FC = () => {
   );
   const [pendingUsersCount, setPendingUsersCount] = useState(0);
   const [profileModalUser, setProfileModalUser] = useState<User | null>(null);
+
+  // Unified Back Button Handler (makes Android hardware back button do the exact same back action as top-left back button)
+  const backHandlerRef = useRef<() => boolean>(() => false);
+
+  useEffect(() => {
+    backHandlerRef.current = () => {
+      // 1. Modals (Profile, Wallpaper, Admin, Call History, New Chat, Status, Labels, Quick Replies, Catalog)
+      if (profileModalUser) {
+        setProfileModalUser(null);
+        return true;
+      }
+      if (showWallpaperModal) {
+        setShowWallpaperModal(false);
+        return true;
+      }
+      if (showAdminDashboard) {
+        setShowAdminDashboard(false);
+        return true;
+      }
+      if (showCallsHistory) {
+        setShowCallsHistory(false);
+        return true;
+      }
+      if (showNewChat) {
+        setShowNewChat(false);
+        return true;
+      }
+      if (showStatus) {
+        setShowStatus(false);
+        return true;
+      }
+      if (showLabels) {
+        setShowLabels(false);
+        return true;
+      }
+      if (showQuickReplies) {
+        setShowQuickReplies(false);
+        return true;
+      }
+      if (showCatalog) {
+        setShowCatalog(false);
+        return true;
+      }
+
+      // 2. Dispatch internal back event (cancels message selection, emoji/attach pickers)
+      const chatBackEvent = new CustomEvent('chat_internal_back', { cancelable: true });
+      const wasCancelled = !window.dispatchEvent(chatBackEvent);
+      if (wasCancelled) {
+        return true;
+      }
+
+      // 3. If an active chat is open, return to chat list (EXACT SAME AS TOP-LEFT BACK ARROW BUTTON!)
+      if (activeChatId) {
+        setActiveChatId(null);
+        return true;
+      }
+
+      // 4. Already at the root chat list
+      return false;
+    };
+  }, [
+    profileModalUser,
+    showWallpaperModal,
+    showAdminDashboard,
+    showCallsHistory,
+    showNewChat,
+    showStatus,
+    showLabels,
+    showQuickReplies,
+    showCatalog,
+    activeChatId,
+  ]);
+
+  // Register Android hardware back button and Escape key handlers
+  useEffect(() => {
+    // Expose global bridge method for native MainActivity.java
+    (window as any).__handleAndroidBackButton = () => {
+      if (backHandlerRef.current) {
+        return backHandlerRef.current();
+      }
+      return false;
+    };
+
+    let listenerHandle: any = null;
+    try {
+      CapApp.addListener('backButton', () => {
+        const handled = backHandlerRef.current ? backHandlerRef.current() : false;
+        if (!handled) {
+          // If already at root chat list, minimize app to background (exact WhatsApp behavior)
+          CapApp.minimizeApp();
+        }
+      }).then((handle) => {
+        listenerHandle = handle;
+      });
+    } catch (err) {
+      console.warn('[BackButton] CapApp note:', err);
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (backHandlerRef.current) {
+          backHandlerRef.current();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      if (listenerHandle) {
+        listenerHandle.remove();
+      }
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Ref to track currentUser in socket and lifecycle callbacks
   const currentUserRef = useRef<User | null>(null);
