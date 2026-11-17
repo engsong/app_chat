@@ -12,9 +12,13 @@ public class CallActionReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if (intent != null && ACTION_DECLINE_CALL.equals(intent.getAction())) {
             try {
+                Intent stopIntent = new Intent(context, IncomingCallForegroundService.class);
+                stopIntent.setAction(IncomingCallForegroundService.ACTION_STOP_CALL);
+                context.startService(stopIntent);
+
                 NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
                 if (nm != null) {
-                    nm.cancel(IChatFirebaseMessagingService.CALL_NOTIFICATION_ID);
+                    nm.cancel(IncomingCallForegroundService.NOTIFICATION_ID);
                 }
             } catch (Exception e) {
                 e.printStackTrace();

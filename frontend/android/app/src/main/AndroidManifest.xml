@@ -20,6 +20,7 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:showOnLockScreen="true"
+            android:inheritShowWhenLocked="true"
             android:exported="true">
 
             <intent-filter>
@@ -51,6 +52,12 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Foreground Service for Incoming Calls (phoneCall service type for reliable background activity start) -->
+        <service
+            android:name=".IncomingCallForegroundService"
+            android:foregroundServiceType="phoneCall"
+            android:exported="false" />
 
         <!-- Custom Firebase Messaging Service for Full-Screen Call & Message Notifications -->
         <service
@@ -109,4 +116,5 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 </manifest>

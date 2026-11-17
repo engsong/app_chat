@@ -2,55 +2,112 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0B141A"
-    android:padding="24dp">
+    android:background="#0B141A">
 
-    <!-- Top End-to-End Encryption Banner -->
+    <!-- 1. Blurred Backdrop Image of Caller Avatar -->
+    <ImageView
+        android:id="@+id/iv_blurred_backdrop"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0.22"
+        android:contentDescription="Call Backdrop" />
+
+    <!-- Dark Gradient Overlay for optimal contrast -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#D00B141A" />
+
+    <!-- 2. Top Header Section: Encryption & Call Type -->
     <LinearLayout
-        android:id="@+id/ll_top_encryption"
-        android:layout_width="wrap_content"
+        android:id="@+id/ll_top_header"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_centerHorizontal="true"
-        android:layout_marginTop="36dp"
+        android:layout_alignParentTop="true"
+        android:layout_marginTop="50dp"
         android:gravity="center"
-        android:orientation="horizontal">
+        android:orientation="vertical">
 
-        <ImageView
-            android:layout_width="14dp"
-            android:layout_height="14dp"
-            android:tint="#8696A0"
-            android:src="@drawable/ic_stat_ichat" />
-
-        <TextView
+        <!-- End-to-end encrypted badge -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:text="End-to-end encrypted"
-            android:textColor="#8696A0"
-            android:textSize="12sp" />
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_lock"
+                android:contentDescription="Encryption Icon" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="End-to-end encrypted"
+                android:textColor="#8696A0"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- Call Title (e.g. ICHAT VOICE CALL) -->
+        <TextView
+            android:id="@+id/tv_call_header"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:letterSpacing="0.08"
+            android:text="ICHAT VOICE CALL"
+            android:textColor="#D1D5DB"
+            android:textSize="13sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Center Section: Caller Profile, Name, Call Type -->
+    <!-- 3. Center Section: Profile Avatar with Glowing Ring and Badge, Name, Status -->
     <LinearLayout
+        android:id="@+id/ll_center_caller"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_centerInParent="true"
         android:gravity="center"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:paddingHorizontal="24dp">
 
-        <!-- Avatar Container -->
+        <!-- Avatar Container with glowing ring and small badge -->
         <FrameLayout
-            android:layout_width="140dp"
-            android:layout_height="140dp"
-            android:layout_marginBottom="24dp">
+            android:layout_width="156dp"
+            android:layout_height="156dp">
 
+            <!-- Circular Avatar with Teal Ring -->
             <ImageView
                 android:id="@+id/iv_caller_avatar"
-                android:layout_width="140dp"
-                android:layout_height="140dp"
-                android:background="#1F2C34"
+                android:layout_width="156dp"
+                android:layout_height="156dp"
+                android:background="@drawable/bg_avatar_ring"
+                android:padding="4dp"
                 android:scaleType="centerCrop"
-                android:src="@mipmap/ic_launcher_round" />
+                android:src="@mipmap/ic_launcher_round"
+                android:contentDescription="Caller Avatar" />
+
+            <!-- Phone / Video badge on bottom-right corner -->
+            <FrameLayout
+                android:id="@+id/fl_avatar_badge"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_gravity="bottom|end"
+                android:layout_marginEnd="2dp"
+                android:layout_marginBottom="2dp"
+                android:background="@drawable/bg_avatar_badge">
+
+                <ImageView
+                    android:id="@+id/iv_avatar_badge_icon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_phone_handset"
+                    android:contentDescription="Call Badge" />
+            </FrameLayout>
         </FrameLayout>
 
         <!-- Caller Name -->
@@ -58,86 +115,129 @@
             android:id="@+id/tv_caller_name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:text="IChat User"
+            android:layout_marginTop="22dp"
+            android:text="Engsong"
             android:textColor="#FFFFFF"
-            android:textSize="30sp"
-            android:textStyle="bold" />
+            android:textSize="32sp"
+            android:textStyle="bold"
+            android:shadowColor="#80000000"
+            android:shadowDx="0"
+            android:shadowDy="2"
+            android:shadowRadius="4" />
 
-        <!-- Call Type (e.g. Incoming Voice Call / Video Call) -->
+        <!-- Call Status Subtitle -->
         <TextView
             android:id="@+id/tv_call_type"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
             android:text="Incoming Voice Call..."
-            android:textColor="#25D366"
+            android:textColor="#00A884"
             android:textSize="16sp"
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Bottom Actions: Decline and Accept Buttons -->
+    <!-- 4. Bottom Controls: Swipe to Answer + Decline / Accept Buttons -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
-        android:layout_marginBottom="48dp"
+        android:layout_marginBottom="44dp"
         android:gravity="center"
-        android:orientation="horizontal">
+        android:orientation="vertical">
 
-        <!-- Decline Button Section -->
+        <!-- Swipe up or tap to answer indicator -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:id="@+id/ll_swipe_answer"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
+            android:layout_marginBottom="32dp"
             android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
             android:orientation="vertical">
 
-            <ImageButton
-                android:id="@+id/btn_decline_call"
-                android:layout_width="76dp"
-                android:layout_height="76dp"
-                android:background="@drawable/bg_call_decline"
-                android:elevation="8dp"
-                android:scaleType="centerInside"
-                android:src="@drawable/ic_call_decline" />
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_arrow_up"
+                android:contentDescription="Swipe up arrow" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="Decline"
-                android:textColor="#D1D7DB"
-                android:textSize="14sp"
+                android:layout_marginTop="2dp"
+                android:letterSpacing="0.12"
+                android:text="SWIPE UP OR TAP TO ANSWER"
+                android:textColor="#9CA3AF"
+                android:textSize="11sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- Accept Button Section -->
+        <!-- Buttons Row: Decline & Accept -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:gravity="center"
-            android:orientation="vertical">
+            android:orientation="horizontal"
+            android:paddingHorizontal="40dp">
 
-            <ImageButton
-                android:id="@+id/btn_accept_call"
-                android:layout_width="76dp"
-                android:layout_height="76dp"
-                android:background="@drawable/bg_call_accept"
-                android:elevation="8dp"
-                android:scaleType="centerInside"
-                android:src="@drawable/ic_call_accept" />
-
-            <TextView
-                android:layout_width="wrap_content"
+            <!-- Decline Button -->
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="Accept"
-                android:textColor="#D1D7DB"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical">
 
+                <ImageButton
+                    android:id="@+id/btn_decline_call"
+                    android:layout_width="76dp"
+                    android:layout_height="76dp"
+                    android:background="@drawable/bg_call_decline"
+                    android:elevation="8dp"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_phone_off"
+                    android:contentDescription="Decline Call" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Decline"
+                    android:textColor="#D1D7DB"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- Accept Button -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageButton
+                    android:id="@+id/btn_accept_call"
+                    android:layout_width="76dp"
+                    android:layout_height="76dp"
+                    android:background="@drawable/bg_call_accept"
+                    android:elevation="8dp"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_phone_handset"
+                    android:contentDescription="Accept Call" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Accept"
+                    android:textColor="#D1D7DB"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 
 </RelativeLayout>

@@ -774,6 +774,17 @@ export function setupSocketHandlers(io: Server) {
           io.to(sId).emit('call_ended');
         });
       }
+
+      // Notify receiver device to dismiss incoming call screen/ringtone if still ringing
+      sendPushToUser(data.to, {
+        title: 'Call Ended',
+        body: 'Call was cancelled',
+        tag: 'incoming-call',
+        data: {
+          type: 'call_ended',
+          callId: session?.callId || '',
+        },
+      });
     });
 
     // Real-time switch from Voice Call to Video Call

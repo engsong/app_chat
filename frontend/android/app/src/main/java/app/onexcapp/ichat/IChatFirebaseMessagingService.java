@@ -10,16 +10,16 @@ import android.os.Build;
 import android.os.PowerManager;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 import com.capacitorjs.plugins.pushnotifications.MessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 import java.util.Map;
 
 public class IChatFirebaseMessagingService extends MessagingService {
-    public static final int CALL_NOTIFICATION_ID = 1001;
 
     @Override
     public void onMessageReceived(@NonNull RemoteMessage remoteMessage) {
-        // Ensure high-importance notification channels exist in this process
+        // Ensure notification channels exist
         NotificationHelper.createChannels(this);
 
         super.onMessageReceived(remoteMessage);
@@ -40,19 +40,61 @@ public class IChatFirebaseMessagingService extends MessagingService {
             body = data.get("body");
         }
 
+        // If call ended or cancelled, stop foreground service
+        if ("call_ended".equalsIgnoreCase(type) || "call_cancelled".equalsIgnoreCase(type)) {
+            Intent stopIntent = new Intent(this, IncomingCallForegroundService.class);
+            stopIntent.setAction(IncomingCallForegroundService.ACTION_STOP_CALL);
+            startService(stopIntent);
+            return;
+        }
+
         boolean isCall = "call".equalsIgnoreCase(type) ||
             (title != null && title.toLowerCase().contains("call"));
 
         if (isCall) {
-            handleIncomingCallPush(data, title, body);
+            handleIncomingCallPush(data);
         } else {
             handleChatMessagePush(title, body, data);
         }
     }
 
+    private void handleIncomingCallPush(Map<String, String> data) {
+        // 1. Wake screen immediately
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                PowerManager.WakeLock wakeLock = pm.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK |
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP |
+                    PowerManager.ON_AFTER_RELEASE,
+                    "ichat:fcm_call_wake"
+                );
+                wakeLock.acquire(30000);
+            }
+        } catch (Exception ignored) {}
+
+        // 2. Start IncomingCallForegroundService with phoneCall serviceType
+        Intent serviceIntent = new Intent(this, IncomingCallForegroundService.class);
+        serviceIntent.setAction(IncomingCallForegroundService.ACTION_START_CALL);
+        if (data != null) {
+            for (Map.Entry<String, String> entry : data.entrySet()) {
+                serviceIntent.putExtra(entry.getKey(), entry.getValue());
+            }
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(this, serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     private void handleChatMessagePush(String title, String body, Map<String, String> data) {
         try {
-            // Wake up screen briefly (5 seconds) so user sees the notification pop up on lock screen
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (pm != null) {
                 PowerManager.WakeLock wakeLock = pm.newWakeLock(
@@ -102,96 +144,6 @@ public class IChatFirebaseMessagingService extends MessagingService {
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) {
             nm.notify(reqCode, builder.build());
-        }
-    }
-
-    private void handleIncomingCallPush(Map<String, String> data, String fallbackTitle, String fallbackBody) {
-        // 1. Wake up the device screen immediately
-        try {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (pm != null) {
-                PowerManager.WakeLock wakeLock = pm.newWakeLock(
-                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK |
-                    PowerManager.ACQUIRE_CAUSES_WAKEUP |
-                    PowerManager.ON_AFTER_RELEASE,
-                    "ichat:incoming_call_wake"
-                );
-                wakeLock.acquire(30000); // 30 seconds wake lock for incoming call
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        // 2. Prepare Intent to launch native IncomingCallActivity with full screen flags
-        Intent fullScreenIntent = new Intent(this, IncomingCallActivity.class);
-        fullScreenIntent.addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK |
-            Intent.FLAG_ACTIVITY_CLEAR_TOP |
-            Intent.FLAG_ACTIVITY_SINGLE_TOP
-        );
-        fullScreenIntent.setAction("app.onexcapp.ichat.INCOMING_CALL");
-        fullScreenIntent.putExtra("isIncomingCall", true);
-        if (data != null) {
-            for (Map.Entry<String, String> entry : data.entrySet()) {
-                fullScreenIntent.putExtra(entry.getKey(), entry.getValue());
-            }
-        }
-
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            flags |= PendingIntent.FLAG_IMMUTABLE;
-        }
-
-        PendingIntent fullScreenPendingIntent = PendingIntent.getActivity(
-            this,
-            CALL_NOTIFICATION_ID,
-            fullScreenIntent,
-            flags
-        );
-
-        // 3. Prepare Decline Intent
-        Intent declineIntent = new Intent(this, CallActionReceiver.class);
-        declineIntent.setAction(CallActionReceiver.ACTION_DECLINE_CALL);
-        PendingIntent declinePendingIntent = PendingIntent.getBroadcast(
-            this,
-            CALL_NOTIFICATION_ID + 1,
-            declineIntent,
-            flags
-        );
-
-        String callerName = (data != null && data.get("callerName") != null) ? data.get("callerName") : "IChat User";
-        boolean isVideo = data != null && "true".equalsIgnoreCase(data.get("isVideo"));
-        String callType = isVideo ? "Video Call" : "Voice Call";
-
-        Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-
-        // 4. Build Notification with setFullScreenIntent launching IncomingCallActivity
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NotificationHelper.CALL_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_ichat)
-            .setContentTitle("Incoming " + callType)
-            .setContentText(callerName + " is calling you...")
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setAutoCancel(true)
-            .setOngoing(true)
-            .setSound(ringtoneUri)
-            .setVibrate(new long[]{0, 1000, 500, 1000, 500, 1000})
-            .setContentIntent(fullScreenPendingIntent)
-            .setFullScreenIntent(fullScreenPendingIntent, true)
-            .addAction(R.drawable.ic_call_decline, "Decline", declinePendingIntent)
-            .addAction(R.drawable.ic_call_accept, "Answer", fullScreenPendingIntent);
-
-        NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (notificationManager != null) {
-            notificationManager.notify(CALL_NOTIFICATION_ID, builder.build());
-        }
-
-        // 5. Also launch native IncomingCallActivity directly over lock screen
-        try {
-            startActivity(fullScreenIntent);
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 }

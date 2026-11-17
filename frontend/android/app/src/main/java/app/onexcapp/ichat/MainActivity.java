@@ -1,6 +1,7 @@
 package app.onexcapp.ichat;
 
 import android.app.KeyguardManager;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -9,6 +10,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.WindowManager;
 import com.getcapacitor.BridgeActivity;
@@ -19,8 +21,7 @@ public class MainActivity extends BridgeActivity {
         wakeAndUnlock();
         super.onCreate(savedInstanceState);
         NotificationHelper.createChannels(this);
-        requestNotificationPermissions();
-        checkOverlayPermission();
+        checkAllRequiredPermissions();
         handleCallIntent(getIntent());
     }
 
@@ -55,7 +56,7 @@ public class MainActivity extends BridgeActivity {
             String callerName = intent.getStringExtra("callerName");
             boolean isVideo = "true".equalsIgnoreCase(intent.getStringExtra("isVideo"));
 
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            Runnable dispatchCall = () -> {
                 try {
                     if (getBridge() != null && getBridge().getWebView() != null) {
                         String js = String.format(
@@ -70,7 +71,11 @@ public class MainActivity extends BridgeActivity {
                         getBridge().getWebView().evaluateJavascript(js, null);
                     }
                 } catch (Exception ignored) {}
-            }, 1200);
+            };
+
+            // Dispatch immediately and retry after WebView finishes rendering
+            new Handler(Looper.getMainLooper()).postDelayed(dispatchCall, 300);
+            new Handler(Looper.getMainLooper()).postDelayed(dispatchCall, 1200);
         }
     }
 
@@ -88,32 +93,60 @@ public class MainActivity extends BridgeActivity {
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
                 WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD |
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
+                WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
             );
         } catch (Exception ignored) {}
     }
 
-    private void requestNotificationPermissions() {
+    private void checkAllRequiredPermissions() {
+        // 1. Post Notifications (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 101);
             }
         }
-    }
 
-    private void checkOverlayPermission() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        // 2. Full-Screen Intent permission (Android 14+)
+        if (Build.VERSION.SDK_INT >= 34) {
+            try {
+                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null && !nm.canUseFullScreenIntent()) {
+                    Intent fsiIntent = new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT);
+                    fsiIntent.setData(Uri.parse("package:" + getPackageName()));
+                    fsiIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(fsiIntent);
+                    return; // Let user grant this first
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // 3. Draw over other apps / Pop-up in background (Crucial for Infinix, Xiaomi, Samsung lock screen calling)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
                 if (!Settings.canDrawOverlays(this)) {
-                    // Guide user to allow draw over other apps for lock-screen incoming calls
-                    Intent intent = new Intent(
+                    Intent overlayIntent = new Intent(
                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:" + getPackageName())
                     );
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(intent);
+                    overlayIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(overlayIntent);
+                    return;
                 }
-            }
-        } catch (Exception ignored) {}
+            } catch (Exception ignored) {}
+        }
+
+        // 4. Battery Optimization Whitelist (prevents OS sleeping background push/call services)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                    Intent batteryIntent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    batteryIntent.setData(Uri.parse("package:" + getPackageName()));
+                    batteryIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(batteryIntent);
+                }
+            } catch (Exception ignored) {}
+        }
     }
 }
