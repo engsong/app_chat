@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Search, RotateCw, MapPin, Maximize2, Minimize2, Crosshair, Radio, X } from 'lucide-react';
+import { ArrowLeft, Search, RotateCw, MapPin, Maximize2, Minimize2, Crosshair, Radio, X, Layers } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -38,6 +38,8 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
   const [accuracy, setAccuracy] = useState<number>(11);
   const [address, setAddress] = useState<string>('Vientiane, Laos');
   const [nearbyPlaces, setNearbyPlaces] = useState<PlaceItem[]>([]);
+  const [mapStyle, setMapStyle] = useState<'dark' | 'street' | 'satellite'>('dark');
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const [loadingPlaces, setLoadingPlaces] = useState<boolean>(false);
   const [searchOpen, setSearchOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -176,6 +178,28 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
     }
   };
 
+  const updateTileLayer = (map: L.Map, style: 'dark' | 'street' | 'satellite') => {
+    if (tileLayerRef.current) {
+      tileLayerRef.current.remove();
+      tileLayerRef.current = null;
+    }
+
+    let url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+    let options: L.TileLayerOptions = { maxZoom: 19 };
+
+    if (style === 'dark') {
+      url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+      options.className = 'map-tiles-dark';
+    } else if (style === 'street') {
+      url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+    } else {
+      url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+    }
+
+    const layer = L.tileLayer(url, options).addTo(map);
+    tileLayerRef.current = layer;
+  };
+
   // 4. Initialize Leaflet Map
   useEffect(() => {
     if (!isOpen || !mapContainerRef.current) return;
@@ -188,11 +212,7 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
         attributionControl: false,
       });
 
-      // Dark Matter CartoDB Tiles (Exact WhatsApp dark map style)
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
-        subdomains: 'abcd',
-      }).addTo(map);
+      updateTileLayer(map, mapStyle);
 
       mapInstanceRef.current = map;
     } else {
@@ -413,6 +433,14 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
           isFullscreenMap ? 'h-full flex-1' : 'h-[40vh] sm:h-[45vh]'
         }`}
       >
+        <style>{`
+          .leaflet-container {
+            background-color: #111b21 !important;
+          }
+          .map-tiles-dark {
+            filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%) !important;
+          }
+        `}</style>
         <div ref={mapContainerRef} className="w-full h-full bg-[#111b21]" />
 
         {/* Top-Left: Fullscreen Map Button */}
@@ -436,10 +464,20 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
           <Crosshair className="w-5 h-5" />
         </button>
 
-        {/* Map Watermark / Google Attribution Indicator */}
-        <div className="absolute bottom-2 left-3 z-[400] text-[11px] font-semibold text-white/50 tracking-wider">
-          Google
-        </div>
+        {/* Top-Right: Map Style Switcher (Dark / Street / Satellite) */}
+        <button
+          onClick={() => {
+            const nextStyle = mapStyle === 'dark' ? 'street' : (mapStyle === 'street' ? 'satellite' : 'dark');
+            setMapStyle(nextStyle);
+            if (mapInstanceRef.current) {
+              updateTileLayer(mapInstanceRef.current, nextStyle);
+            }
+          }}
+          className="absolute top-15 right-3 z-[400] w-10 h-10 rounded-full bg-[#202c33]/90 hover:bg-[#2a3942] backdrop-blur-md text-white flex items-center justify-center shadow-lg border border-[#3b4a54]/40"
+          title={`Map Style: ${mapStyle.toUpperCase()} (Click to toggle Dark/Street/Satellite)`}
+        >
+          <Layers className="w-5 h-5 text-[#00a884]" />
+        </button>
       </div>
 
       {/* 3. Bottom List of Actions & Nearby Places */}
