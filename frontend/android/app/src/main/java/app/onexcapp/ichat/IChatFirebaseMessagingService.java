@@ -4,22 +4,56 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Shader;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.Person;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.drawable.IconCompat;
 import com.capacitorjs.plugins.pushnotifications.MessagingService;
 import com.google.firebase.messaging.RemoteMessage;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class IChatFirebaseMessagingService extends MessagingService {
+    // In-memory message cache per chat/user so multiple messages list under one conversation card
+    private static final Map<String, List<MessageRecord>> conversationCache = new ConcurrentHashMap<>();
+    private static final ExecutorService networkExecutor = Executors.newCachedThreadPool();
+
+    private static class MessageRecord {
+        final String text;
+        final long time;
+        final String senderName;
+        final String senderId;
+
+        MessageRecord(String text, long time, String senderName, String senderId) {
+            this.text = text;
+            this.time = time;
+            this.senderName = senderName;
+            this.senderId = senderId;
+        }
+    }
 
     @Override
     public void onMessageReceived(@NonNull RemoteMessage remoteMessage) {
-        // 1. Ensure high-importance notification channels exist in this process
+        // 1. Ensure notification channels exist in this process
         NotificationHelper.createChannels(this);
 
         Map<String, String> data = remoteMessage.getData();
@@ -52,8 +86,6 @@ public class IChatFirebaseMessagingService extends MessagingService {
         if (isCall) {
             handleIncomingCallPush(data);
         } else {
-            // Only pass normal chat messages to Capacitor push plugin
-            super.onMessageReceived(remoteMessage);
             handleChatMessagePush(title, body, data);
         }
     }
@@ -114,7 +146,8 @@ public class IChatFirebaseMessagingService extends MessagingService {
         } catch (Exception ignored) {}
     }
 
-    private void handleChatMessagePush(String title, String body, Map<String, String> data) {
+    private void handleChatMessagePush(String fallbackTitle, String messageBody, Map<String, String> data) {
+        // 1. Wake screen for 5 seconds so lock screen lights up with the card
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (pm != null) {
@@ -122,49 +155,141 @@ public class IChatFirebaseMessagingService extends MessagingService {
                     PowerManager.SCREEN_BRIGHT_WAKE_LOCK |
                     PowerManager.ACQUIRE_CAUSES_WAKEUP |
                     PowerManager.ON_AFTER_RELEASE,
-                    "ichat:message_wake"
+                    "ichat:chat_wake"
                 );
                 wakeLock.acquire(5000);
             }
         } catch (Exception ignored) {}
 
-        Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK |
-            Intent.FLAG_ACTIVITY_CLEAR_TOP |
-            Intent.FLAG_ACTIVITY_SINGLE_TOP
-        );
-        if (data != null) {
-            for (Map.Entry<String, String> entry : data.entrySet()) {
-                intent.putExtra(entry.getKey(), entry.getValue());
+        String chatId = data != null ? data.get("chatId") : null;
+        String senderId = data != null ? data.get("senderId") : null;
+        String senderName = data != null ? data.get("senderName") : null;
+        String senderAvatar = data != null ? data.get("senderAvatar") : null;
+        String chatName = data != null ? data.get("chatName") : null;
+        boolean isGroup = data != null && "true".equalsIgnoreCase(data.get("isGroup"));
+
+        if (senderName == null || senderName.isEmpty()) {
+            senderName = (fallbackTitle != null && !fallbackTitle.isEmpty()) ? fallbackTitle : "IChat User";
+        }
+        if (messageBody == null || messageBody.isEmpty()) {
+            messageBody = "New message";
+        }
+
+        final String finalSenderName = senderName;
+        final String finalMessageBody = messageBody;
+        final String conversationKey = (chatId != null && !chatId.isEmpty()) ? chatId : (senderId != null ? senderId : "default_chat");
+
+        // Execute on background thread to download sender avatar and build MessagingStyle notification
+        networkExecutor.execute(() -> {
+            Bitmap avatarBitmap = fetchCircularBitmap(senderAvatar);
+            IconCompat avatarIcon = avatarBitmap != null ? IconCompat.createWithBitmap(avatarBitmap) : null;
+
+            // Sender Person
+            Person.Builder personBuilder = new Person.Builder()
+                .setName(finalSenderName)
+                .setKey(senderId != null ? senderId : finalSenderName)
+                .setImportant(true);
+            if (avatarIcon != null) {
+                personBuilder.setIcon(avatarIcon);
             }
-        }
+            Person senderPerson = personBuilder.build();
 
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            flags |= PendingIntent.FLAG_IMMUTABLE;
-        }
+            // Cache message under conversation key
+            List<MessageRecord> records = conversationCache.computeIfAbsent(conversationKey, k -> Collections.synchronizedList(new ArrayList<>()));
+            synchronized (records) {
+                records.add(new MessageRecord(finalMessageBody, System.currentTimeMillis(), finalSenderName, senderId));
+                if (records.size() > 7) {
+                    records.remove(0);
+                }
+            }
 
-        int reqCode = (int) System.currentTimeMillis();
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, reqCode, intent, flags);
+            // Build MessagingStyle
+            Person me = new Person.Builder().setName("Me").build();
+            NotificationCompat.MessagingStyle messagingStyle = new NotificationCompat.MessagingStyle(me);
+            if (isGroup && chatName != null && !chatName.isEmpty()) {
+                messagingStyle.setConversationTitle(chatName);
+                messagingStyle.setGroupConversation(true);
+            }
 
-        Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            synchronized (records) {
+                for (MessageRecord rec : records) {
+                    messagingStyle.addMessage(rec.text, rec.time, senderPerson);
+                }
+            }
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NotificationHelper.MSG_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_ichat)
-            .setContentTitle(title != null && !title.isEmpty() ? title : "IChat Message")
-            .setContentText(body != null ? body : "New message received")
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setAutoCancel(true)
-            .setSound(soundUri)
-            .setVibrate(new long[]{0, 300, 150, 300})
-            .setContentIntent(pendingIntent);
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK |
+                Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            );
+            if (data != null) {
+                for (Map.Entry<String, String> entry : data.entrySet()) {
+                    intent.putExtra(entry.getKey(), entry.getValue());
+                }
+            }
 
-        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm != null) {
-            nm.notify(reqCode, builder.build());
+            int pFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                pFlags |= PendingIntent.FLAG_IMMUTABLE;
+            }
+
+            int notificationId = Math.abs(conversationKey.hashCode());
+            PendingIntent pendingIntent = PendingIntent.getActivity(this, notificationId, intent, pFlags);
+
+            Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NotificationHelper.MSG_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_ichat) // Logo of app (renders as small badge at bottom-right of avatar)
+                .setStyle(messagingStyle)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setAutoCancel(true)
+                .setSound(soundUri)
+                .setVibrate(new long[]{0, 300, 150, 300})
+                .setContentIntent(pendingIntent);
+
+            if (avatarBitmap != null) {
+                builder.setLargeIcon(avatarBitmap);
+            }
+
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) {
+                nm.notify(notificationId, builder.build());
+            }
+        });
+    }
+
+    public static Bitmap fetchCircularBitmap(String urlStr) {
+        if (urlStr == null || urlStr.trim().isEmpty()) return null;
+        try {
+            String fullUrl = urlStr;
+            if (!fullUrl.startsWith("http://") && !fullUrl.startsWith("https://")) {
+                fullUrl = "https://chat.on-excapp.app" + (fullUrl.startsWith("/") ? "" : "/") + fullUrl;
+            }
+            URL url = new URL(fullUrl);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(3000);
+            conn.setReadTimeout(3000);
+            conn.setDoInput(true);
+            conn.connect();
+            InputStream is = conn.getInputStream();
+            Bitmap raw = BitmapFactory.decodeStream(is);
+            is.close();
+            if (raw == null) return null;
+
+            int dim = Math.min(raw.getWidth(), raw.getHeight());
+            Bitmap output = Bitmap.createBitmap(dim, dim, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(output);
+            Paint paint = new Paint();
+            paint.setAntiAlias(true);
+            paint.setShader(new BitmapShader(raw, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP));
+            float r = dim / 2f;
+            canvas.drawCircle(r, r, r, paint);
+            return output;
+        } catch (Exception e) {
+            return null;
         }
     }
 }

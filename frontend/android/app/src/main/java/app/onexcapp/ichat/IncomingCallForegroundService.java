@@ -8,6 +8,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.graphics.Bitmap;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
@@ -16,6 +17,8 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.Person;
+import androidx.core.graphics.drawable.IconCompat;
 
 public class IncomingCallForegroundService extends Service {
     public static final String ACTION_START_CALL = "app.onexcapp.ichat.ACTION_START_CALL";
@@ -121,11 +124,33 @@ public class IncomingCallForegroundService extends Service {
 
         Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
 
-        // 4. Build high-priority call notification
+        // 4. Build Caller Person and CallStyle for prominent Lock Screen Calling Banner
+        Bitmap callerAvatarBitmap = IChatFirebaseMessagingService.fetchCircularBitmap(callerAvatar);
+        IconCompat callerIcon = callerAvatarBitmap != null ? IconCompat.createWithBitmap(callerAvatarBitmap) : null;
+
+        Person.Builder callerPersonBuilder = new Person.Builder()
+            .setName(callerName)
+            .setImportant(true);
+        if (callerIcon != null) {
+            callerPersonBuilder.setIcon(callerIcon);
+        }
+        Person callerPerson = callerPersonBuilder.build();
+
+        NotificationCompat.CallStyle callStyle = NotificationCompat.CallStyle.forIncomingCall(
+            callerPerson,
+            declinePendingIntent,
+            fullScreenPendingIntent
+        );
+        if (isVideo) {
+            callStyle.setIsVideo(true);
+        }
+
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NotificationHelper.CALL_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_ichat)
+            .setSmallIcon(R.drawable.ic_stat_ichat) // App badge at bottom-right of avatar
             .setContentTitle("Incoming " + callType)
             .setContentText(callerName + " is calling you...")
+            .setStyle(callStyle)
+            .addPerson(callerPerson)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -137,6 +162,10 @@ public class IncomingCallForegroundService extends Service {
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .addAction(R.drawable.ic_call_decline, "Decline", declinePendingIntent)
             .addAction(R.drawable.ic_call_accept, "Answer", fullScreenPendingIntent);
+
+        if (callerAvatarBitmap != null) {
+            builder.setLargeIcon(callerAvatarBitmap);
+        }
 
         Notification notification = builder.build();
 

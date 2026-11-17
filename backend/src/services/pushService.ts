@@ -98,10 +98,9 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
 
     stringifiedData.title = payload.title;
     stringifiedData.body = payload.body;
-    if (isCall) {
-      stringifiedData.type = 'call';
-    } else {
-      stringifiedData.type = 'chat';
+    stringifiedData.channelId = channelId;
+    if (!stringifiedData.type) {
+      stringifiedData.type = isCall ? 'call' : 'chat';
     }
 
     const message: any = {
@@ -114,6 +113,10 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
       apns: {
         payload: {
           aps: {
+            alert: {
+              title: payload.title,
+              body: payload.body,
+            },
             sound: 'default',
             badge: 1,
             contentAvailable: true,
@@ -121,25 +124,6 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
         },
       },
     };
-
-    // For chat messages, use system notification.
-    // For calls, omit notification block so Android OS triggers IChatFirebaseMessagingService to wake screen & launch full-screen call UI.
-    if (!isCall) {
-      message.notification = {
-        title: payload.title,
-        body: payload.body,
-      };
-      message.android.notification = {
-        channelId,
-        icon: 'ic_stat_ichat',
-        color: '#25D366',
-        sound: 'default',
-        priority: 'max',
-        visibility: 'public',
-        defaultSound: true,
-        defaultVibrateTimings: true,
-      };
-    }
 
     const response = await getMessaging().send(message);
     console.log(`[FCM] High-priority native push sent successfully via Firebase Admin, messageId: ${response}`);

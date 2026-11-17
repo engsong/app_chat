@@ -213,7 +213,15 @@ export function saveAndBroadcastMessage(data: {
           body,
           icon: sender?.avatar || '/logo.png',
           tag: `chat-${chat.id}`,
-          data: { chatId: chat.id, url: 'https://chat.on-excapp.app' },
+          data: {
+            chatId: chat.id,
+            senderId,
+            senderName,
+            senderAvatar: sender?.avatar || '',
+            chatName: chat.name || '',
+            isGroup: String(!!chat.isGroup),
+            url: 'https://chat.on-excapp.app',
+          },
         });
       }
     });
