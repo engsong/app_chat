@@ -12,6 +12,10 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
+import android.webkit.JavascriptInterface;
+import java.util.List;
 import android.view.WindowManager;
 import com.getcapacitor.BridgeActivity;
 
@@ -25,6 +29,55 @@ public class MainActivity extends BridgeActivity {
         try {
             if (getBridge() != null && getBridge().getWebView() != null) {
                 getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+                getBridge().getWebView().addJavascriptInterface(new Object() {
+                    @JavascriptInterface
+                    public void setSpeakerphoneOn(boolean on) {
+                        try {
+                            AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                            if (audioManager != null) {
+                                audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    List<AudioDeviceInfo> devices = audioManager.getAvailableCommunicationDevices();
+                                    for (AudioDeviceInfo device : devices) {
+                                        if (on && device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
+                                            audioManager.setCommunicationDevice(device);
+                                            break;
+                                        } else if (!on && device.getType() == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) {
+                                            audioManager.setCommunicationDevice(device);
+                                            break;
+                                        }
+                                    }
+                                }
+                                audioManager.setSpeakerphoneOn(on);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+
+                    @JavascriptInterface
+                    public boolean isSpeakerphoneOn() {
+                        try {
+                            AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                            if (audioManager != null) {
+                                return audioManager.isSpeakerphoneOn();
+                            }
+                        } catch (Exception ignored) {}
+                        return false;
+                    }
+
+                    @JavascriptInterface
+                    public void resetAudioMode() {
+                        try {
+                            AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                            if (audioManager != null) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    audioManager.clearCommunicationDevice();
+                                }
+                                audioManager.setSpeakerphoneOn(false);
+                                audioManager.setMode(AudioManager.MODE_NORMAL);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }, "AndroidAudioBridge");
             }
         } catch (Exception ignored) {}
         NotificationHelper.createChannels(this);

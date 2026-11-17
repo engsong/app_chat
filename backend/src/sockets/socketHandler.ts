@@ -872,7 +872,7 @@ export function setupSocketHandlers(io: Server) {
       const senderId = socketUserMap.get(socket.id);
       console.log(`[GroupCall] User ${senderId} declined group call for group ${data.groupId}`);
       if (senderId && data.groupId) {
-        socket.to(`group-call-${data.groupId}`).emit('user_declined_group_call', {
+        io.to(`group-call-${data.groupId}`).emit('user_declined_group_call', {
           userId: senderId,
           groupId: data.groupId,
         });
@@ -951,6 +951,7 @@ export function setupSocketHandlers(io: Server) {
             callerAvatar: callerAvatarUrl,
             isVideo: !!isVideo,
             chatId: groupId,
+            groupId,
             isGroup: true,
             groupName: chat.name || 'Group Call',
           };

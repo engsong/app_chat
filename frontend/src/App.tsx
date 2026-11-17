@@ -1275,6 +1275,8 @@ export const App: React.FC = () => {
         onToggleMute={webrtc.toggleMute}
         onToggleVideo={webrtc.toggleVideo}
         onToggleScreenShare={webrtc.toggleScreenShare}
+        isSpeakerOn={webrtc.isSpeakerOn}
+        onToggleSpeaker={webrtc.toggleSpeaker}
       />
 
       {/* 4. Group Call Modal (WebRTC Mesh) */}
@@ -1293,6 +1295,8 @@ export const App: React.FC = () => {
           isVideoDisabled={webrtc.isVideoDisabled}
           localStreamRef={webrtc.localStreamRef}
           remoteStreams={webrtc.groupRemoteStreams}
+          isSpeakerOn={webrtc.isSpeakerOn}
+          onToggleSpeaker={webrtc.toggleSpeaker}
           onToggleMute={webrtc.toggleMute}
           onToggleVideo={webrtc.toggleVideo}
           onLeaveCall={webrtc.leaveGroupCall}

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { PhoneOff, Mic, MicOff, Video, VideoOff, Users } from 'lucide-react';
+import { PhoneOff, Mic, MicOff, Video, VideoOff, Users, Volume2, VolumeX } from 'lucide-react';
 import { GroupParticipantInfo } from '../../hooks/useWebRTC.js';
 
 interface GroupCallModalProps {
@@ -12,6 +12,8 @@ interface GroupCallModalProps {
   isVideoDisabled: boolean;
   localStreamRef: React.RefObject<MediaStream | null>;
   remoteStreams?: Map<string, MediaStream>;
+  isSpeakerOn?: boolean;
+  onToggleSpeaker?: () => void;
   onToggleMute: () => void;
   onToggleVideo: () => void;
   onLeaveCall: () => void;
@@ -24,13 +26,32 @@ const RemoteAudioSink: React.FC<{ userId: string; stream: MediaStream }> = ({ us
     if (audioRef.current && stream) {
       audioRef.current.srcObject = stream;
       audioRef.current.volume = 1.0;
-      audioRef.current.play().catch((err) => {
-        console.warn(`[RemoteAudioSink:${userId}] Autoplay audio note:`, err);
-      });
+      audioRef.current.muted = false;
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn(`[RemoteAudioSink:${userId}] Autoplay note:`, err);
+          const unlock = () => {
+            audioRef.current?.play().catch(() => {});
+            window.removeEventListener('click', unlock);
+            window.removeEventListener('touchstart', unlock);
+          };
+          window.addEventListener('click', unlock);
+          window.addEventListener('touchstart', unlock);
+        });
+      }
     }
-  }, [stream]);
+  }, [stream, userId]);
 
-  return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
+  // Keep element in active DOM flow without visual obstruction so WebView never suspends playback
+  return (
+    <audio
+      ref={audioRef}
+      autoPlay
+      playsInline
+      style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none' }}
+    />
+  );
 };
 
 const RemoteParticipantTile: React.FC<{
@@ -41,24 +62,39 @@ const RemoteParticipantTile: React.FC<{
   const [hasVideoTrack, setHasVideoTrack] = useState(false);
 
   useEffect(() => {
-    if (stream) {
+    if (!stream) {
+      setHasVideoTrack(false);
+      return;
+    }
+
+    const evaluateTracks = () => {
+      const vTracks = stream.getVideoTracks();
+      const valid = vTracks.length > 0 && vTracks.some((t) => t.readyState !== 'ended');
+      setHasVideoTrack(valid);
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        if (videoRef.current.srcObject !== stream) {
+          videoRef.current.srcObject = stream;
+        }
         videoRef.current.play().catch(() => {});
       }
+    };
 
-      const evaluateTracks = () => {
-        const vTracks = stream.getVideoTracks();
-        setHasVideoTrack(vTracks.length > 0 && vTracks.some((t) => t.enabled));
-      };
+    evaluateTracks();
+    stream.onaddtrack = evaluateTracks;
+    stream.onremovetrack = evaluateTracks;
 
-      evaluateTracks();
-      stream.onaddtrack = evaluateTracks;
-      stream.onremovetrack = evaluateTracks;
-    }
-  }, [stream]);
+    stream.getVideoTracks().forEach((track) => {
+      track.onunmute = evaluateTracks;
+      track.onmute = evaluateTracks;
+      track.onended = evaluateTracks;
+    });
 
-  const showVideo = (participant.isVideo || hasVideoTrack) && stream && hasVideoTrack;
+    const interval = setInterval(evaluateTracks, 1000);
+    return () => clearInterval(interval);
+  }, [stream, participant.isVideo]);
+
+  const liveTracks = (stream?.getVideoTracks() || []).filter((t) => t.readyState !== 'ended');
+  const showVideo = (participant.isVideo || hasVideoTrack || liveTracks.length > 0) && liveTracks.length > 0;
 
   return (
     <div className="relative rounded-2xl overflow-hidden bg-[#202c33] border border-[#2a3942] flex items-center justify-center min-h-[180px] shadow-lg">
@@ -78,12 +114,15 @@ const RemoteParticipantTile: React.FC<{
             className="w-20 h-20 rounded-full object-cover mb-2 ring-2 ring-[#00a884]/40"
           />
           <span className="text-sm font-semibold">{participant.name}</span>
+          {participant.isVideo && (
+            <span className="text-xs text-[#00a884] mt-1 animate-pulse">Connecting video...</span>
+          )}
         </div>
       )}
 
       <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs flex items-center gap-2">
         <span>{participant.name}</span>
-        {participant.isVideo || hasVideoTrack ? (
+        {participant.isVideo || showVideo ? (
           <Video className="w-3.5 h-3.5 text-[#00a884]" />
         ) : (
           <Mic className="w-3.5 h-3.5 text-[#00a884]" />
@@ -101,6 +140,8 @@ export const GroupCallModal: React.FC<GroupCallModalProps> = ({
   isVideoDisabled,
   localStreamRef,
   remoteStreams,
+  isSpeakerOn,
+  onToggleSpeaker,
   onToggleMute,
   onToggleVideo,
   onLeaveCall,
@@ -184,6 +225,21 @@ export const GroupCallModal: React.FC<GroupCallModalProps> = ({
         >
           {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
         </button>
+
+        {/* Toggle Speaker (Loudspeaker vs Earpiece) */}
+        {onToggleSpeaker && (
+          <button
+            onClick={onToggleSpeaker}
+            className={`w-13 h-13 p-3.5 rounded-full transition-all ${
+              isSpeakerOn
+                ? 'bg-[#00a884] hover:bg-[#008f6f] text-white shadow-lg shadow-[#00a884]/30'
+                : 'bg-[#202c33] hover:bg-[#2a3942] text-gray-300'
+            }`}
+            title={isSpeakerOn ? 'Speakerphone On (Tap for Earpiece)' : 'Speakerphone Off (Tap for Loudspeaker)'}
+          >
+            {isSpeakerOn ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
+          </button>
+        )}
 
         {/* Camera / Video Button (ALWAYS available: switches voice call to video call, or toggles camera) */}
         <button

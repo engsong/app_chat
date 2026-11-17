@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Phone, PhoneOff, Video, Mic, MicOff, VideoOff, Monitor, Maximize2 } from 'lucide-react';
+import { Phone, PhoneOff, Video, Mic, MicOff, VideoOff, Monitor, Maximize2, Volume2, VolumeX } from 'lucide-react';
 import { IncomingCallInfo } from '../../hooks/useWebRTC.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
 
@@ -14,6 +14,7 @@ interface CallModalProps {
   isMuted: boolean;
   isVideoDisabled: boolean;
   isScreenSharing: boolean;
+  isSpeakerOn?: boolean;
   localStreamRef: React.RefObject<MediaStream | null>;
   remoteStreamRef: React.RefObject<MediaStream | null>;
   remoteStream?: MediaStream | null;
@@ -21,6 +22,7 @@ interface CallModalProps {
   onReject: () => void;
   onEndCall: () => void;
   onToggleMute: () => void;
+  onToggleSpeaker?: () => void;
   onToggleVideo: () => void;
   onToggleScreenShare: () => void;
 }
@@ -36,6 +38,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   isMuted,
   isVideoDisabled,
   isScreenSharing,
+  isSpeakerOn,
   localStreamRef,
   remoteStreamRef,
   remoteStream,
@@ -43,6 +46,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   onReject,
   onEndCall,
   onToggleMute,
+  onToggleSpeaker,
   onToggleVideo,
   onToggleScreenShare,
 }) => {
@@ -288,6 +292,21 @@ export const CallModal: React.FC<CallModalProps> = ({
           >
             {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
+
+          {/* Speakerphone Toggle (Loudspeaker vs Earpiece) */}
+          {onToggleSpeaker && (
+            <button
+              onClick={onToggleSpeaker}
+              className={`w-12 h-12 p-3 rounded-full flex items-center justify-center transition-all ${
+                isSpeakerOn
+                  ? 'bg-[#00a884] text-white shadow-lg shadow-[#00a884]/40'
+                  : 'bg-[#202c33]/90 hover:bg-[#2a3942] text-gray-300'
+              }`}
+              title={isSpeakerOn ? 'Speakerphone On (Tap for Earpiece)' : 'Speakerphone Off (Tap for Loudspeaker)'}
+            >
+              {isSpeakerOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+            </button>
+          )}
 
           {/* Switch to Video / Toggle Camera */}
           <button

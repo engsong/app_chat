@@ -71,6 +71,7 @@ export function useWebRTC(
   const [isVideoDisabled, setIsVideoDisabled] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
 
   // Group Call States
   const [inGroupCall, setInGroupCall] = useState(false);
@@ -225,7 +226,29 @@ export function useWebRTC(
     setInGroupCall(false);
     setActiveGroupId(null);
     setGroupParticipants([]);
+
+    if ((window as any).AndroidAudioBridge?.resetAudioMode) {
+      try {
+        (window as any).AndroidAudioBridge.resetAudioMode();
+      } catch (_) {}
+    }
+    setIsSpeakerOn(true);
   }, []);
+
+  // Toggle Speakerphone (Earpiece vs Loudspeaker)
+  const toggleSpeaker = (forceState?: boolean) => {
+    setIsSpeakerOn((prev) => {
+      const next = forceState !== undefined ? forceState : !prev;
+      if ((window as any).AndroidAudioBridge?.setSpeakerphoneOn) {
+        try {
+          (window as any).AndroidAudioBridge.setSpeakerphoneOn(next);
+        } catch (err) {
+          console.warn('[WebRTC] Error toggling Android speakerphone:', err);
+        }
+      }
+      return next;
+    });
+  };
 
   // Helper to drain queued ICE candidates once remoteDescription is set
   const drainCandidateQueue = async (pc: RTCPeerConnection) => {
@@ -405,9 +428,11 @@ export function useWebRTC(
     closeCallNotification();
 
     if (socket && incomingCall) {
-      if (incomingCall.isGroup && incomingCall.chatId) {
-        socket.emit('reject_group_call', { groupId: incomingCall.chatId, callerId: incomingCall.from });
-      } else {
+      const isGrp = Boolean(incomingCall.isGroup);
+      const grpId = incomingCall.groupId || incomingCall.chatId;
+      if (isGrp && grpId) {
+        socket.emit('reject_group_call', { groupId: grpId, callerId: incomingCall.from });
+      } else if (incomingCall.from) {
         socket.emit('reject_call', { to: incomingCall.from });
       }
     }
@@ -495,23 +520,28 @@ export function useWebRTC(
           if (inGroupCall) {
             for (const [targetUid, pc] of groupPeersRef.current.entries()) {
               try {
-                const senders = pc.getSenders();
-                const videoSender = senders.find((s) => s.track && s.track.kind === 'video');
-                if (videoSender) {
-                  await videoSender.replaceTrack(videoTrack);
+                const transceivers = pc.getTransceivers();
+                const videoTransceiver = transceivers.find(
+                  (t) => t.sender.track?.kind === 'video' || t.receiver.track?.kind === 'video'
+                );
+                if (videoTransceiver) {
+                  videoTransceiver.direction = 'sendrecv';
+                  await videoTransceiver.sender.replaceTrack(videoTrack);
                 } else {
                   pc.addTrack(videoTrack, localStreamRef.current!);
-                  const offer = await pc.createOffer();
-                  await pc.setLocalDescription(offer);
-                  if (socket && currentUserId) {
-                    socket.emit('group_call_signal', {
-                      userToSignal: targetUid,
-                      callerId: currentUserId,
-                      signal: offer,
-                    });
-                  }
                 }
-              } catch (_) {}
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                if (socket && currentUserId) {
+                  socket.emit('group_call_signal', {
+                    userToSignal: targetUid,
+                    callerId: currentUserId,
+                    signal: offer,
+                  });
+                }
+              } catch (e) {
+                console.warn('[GroupWebRTC] Error renegotiating video for peer:', e);
+              }
             }
             if (socket && activeGroupId) {
               socket.emit('switch_group_call_to_video', { groupId: activeGroupId, isVideo: true });
@@ -520,6 +550,7 @@ export function useWebRTC(
 
           setIsVideoCall(true);
           setIsVideoDisabled(false);
+          toggleSpeaker(true);
 
           // Notify remote peer to switch to video UI (1-on-1 call)
           if (!inGroupCall && socket && callPartnerIdRef.current) {
@@ -530,8 +561,21 @@ export function useWebRTC(
         // Toggle camera on/off
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoDisabled(!videoTrack.enabled);
-        if (inGroupCall && socket && activeGroupId) {
-          socket.emit('switch_group_call_to_video', { groupId: activeGroupId, isVideo: videoTrack.enabled });
+        if (inGroupCall) {
+          for (const [, pc] of groupPeersRef.current.entries()) {
+            try {
+              const transceivers = pc.getTransceivers();
+              const videoTransceiver = transceivers.find(
+                (t) => t.sender.track?.kind === 'video' || t.receiver.track?.kind === 'video'
+              );
+              if (videoTransceiver) {
+                videoTransceiver.direction = videoTrack.enabled ? 'sendrecv' : 'recvonly';
+              }
+            } catch (_) {}
+          }
+          if (socket && activeGroupId) {
+            socket.emit('switch_group_call_to_video', { groupId: activeGroupId, isVideo: videoTrack.enabled });
+          }
         }
       }
     } catch (err) {
@@ -592,6 +636,7 @@ export function useWebRTC(
     setInGroupCall(true);
     setIsVideoCall(video);
     soundEffects.playConnectTone();
+    toggleSpeaker(true);
 
     const stream = await getMediaStream(video);
 
@@ -877,6 +922,16 @@ export function useWebRTC(
         const pc = await createPeerForGroupMember(callerId, false, stream);
         if (!pc) return;
 
+        try {
+          const transceivers = pc.getTransceivers();
+          const videoTransceiver = transceivers.find(
+            (t) => t.receiver.track?.kind === 'video' || t.sender.track?.kind === 'video'
+          );
+          if (videoTransceiver && videoTransceiver.direction === 'sendonly') {
+            videoTransceiver.direction = 'sendrecv';
+          }
+        } catch (_) {}
+
         await pc.setRemoteDescription(new RTCSessionDescription(signal));
 
         // Drain any buffered ICE candidates for callerId
@@ -1081,6 +1136,7 @@ export function useWebRTC(
     isMuted,
     isVideoDisabled,
     isScreenSharing,
+    isSpeakerOn,
     localStreamRef,
     remoteStreamRef,
     remoteStream,
@@ -1089,6 +1145,7 @@ export function useWebRTC(
     rejectCall,
     endCall,
     toggleMute,
+    toggleSpeaker,
     toggleVideo,
     toggleScreenShare,
     // Group Calling
