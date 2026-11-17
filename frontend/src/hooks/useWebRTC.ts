@@ -609,20 +609,44 @@ export function useWebRTC(
   ) => {
     if (!socket || !currentUserId) return null;
 
-    if (groupPeersRef.current.has(targetUserId)) {
+    let pc = groupPeersRef.current.get(targetUserId);
+    if (pc && pc.signalingState !== 'closed') {
+      console.log(`[GroupWebRTC] Reusing active peer connection for ${targetUserId}`);
+      // Ensure audio track is present in senders
+      const senders = pc.getSenders();
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack && !senders.some((s) => s.track && s.track.kind === 'audio')) {
+        try {
+          audioTrack.enabled = true;
+          pc.addTrack(audioTrack, stream);
+        } catch (_) {}
+      }
+      return pc;
+    }
+
+    if (pc) {
       try {
-        groupPeersRef.current.get(targetUserId)?.close();
+        pc.close();
       } catch (_) {}
       groupPeersRef.current.delete(targetUserId);
     }
 
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+    pc = new RTCPeerConnection(ICE_SERVERS);
     groupPeersRef.current.set(targetUserId, pc);
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[GroupWebRTC] Peer ${targetUserId} iceConnectionState: ${pc?.iceConnectionState}`);
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log(`[GroupWebRTC] Peer ${targetUserId} connectionState: ${pc?.connectionState}`);
+    };
 
     // Add audio track directly for crystal-clear voice communication
     const audioTrack = stream.getAudioTracks()[0];
     if (audioTrack) {
       try {
+        audioTrack.enabled = true;
         pc.addTrack(audioTrack, stream);
       } catch (err) {
         console.warn(`[GroupWebRTC] Error adding audio track to ${targetUserId}:`, err);
@@ -633,6 +657,7 @@ export function useWebRTC(
     const videoTrack = stream.getVideoTracks()[0];
     if (videoTrack) {
       try {
+        videoTrack.enabled = true;
         pc.addTrack(videoTrack, stream);
       } catch (err) {
         console.warn(`[GroupWebRTC] Error adding video track to ${targetUserId}:`, err);
@@ -645,12 +670,20 @@ export function useWebRTC(
 
     pc.ontrack = (event) => {
       console.log(`[GroupWebRTC] Received remote ${event.track.kind} track from ${targetUserId}`);
-      let rStream = event.streams && event.streams[0];
-      if (!rStream) {
-        rStream = groupStreamsRef.current.get(targetUserId) || new MediaStream();
-        rStream.addTrack(event.track);
+      try {
+        event.track.enabled = true;
+      } catch (_) {}
+
+      let currentStream = groupStreamsRef.current.get(targetUserId);
+      if (!currentStream) {
+        currentStream = new MediaStream();
       }
-      groupStreamsRef.current.set(targetUserId, rStream);
+      if (!currentStream.getTracks().some((t) => t.id === event.track.id)) {
+        currentStream.addTrack(event.track);
+      }
+      // Re-wrap in brand new MediaStream to ensure React state identity triggers UI update & audio play
+      const newStream = new MediaStream(currentStream.getTracks());
+      groupStreamsRef.current.set(targetUserId, newStream);
       setGroupRemoteStreams(new Map(groupStreamsRef.current));
     };
 
@@ -666,10 +699,8 @@ export function useWebRTC(
 
     if (isInitiator) {
       try {
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: true,
-        });
+        // Clean unified plan offer without conflicting offerToReceiveAudio
+        const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         socket.emit('group_call_signal', {
           userToSignal: targetUserId,

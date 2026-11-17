@@ -17,22 +17,34 @@ interface GroupCallModalProps {
   onLeaveCall: () => void;
 }
 
+const RemoteAudioSink: React.FC<{ userId: string; stream: MediaStream }> = ({ userId, stream }) => {
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    if (audioRef.current && stream) {
+      audioRef.current.srcObject = stream;
+      audioRef.current.volume = 1.0;
+      audioRef.current.play().catch((err) => {
+        console.warn(`[RemoteAudioSink:${userId}] Autoplay audio note:`, err);
+      });
+    }
+  }, [stream]);
+
+  return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
+};
+
 const RemoteParticipantTile: React.FC<{
   participant: GroupParticipantInfo;
   stream?: MediaStream;
 }> = ({ participant, stream }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const [hasVideoTrack, setHasVideoTrack] = useState(false);
 
   useEffect(() => {
     if (stream) {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-      }
-      if (audioRef.current) {
-        audioRef.current.srcObject = stream;
-        audioRef.current.play().catch((err) => console.warn('[RemoteParticipant] Autoplay audio note:', err));
+        videoRef.current.play().catch(() => {});
       }
 
       const evaluateTracks = () => {
@@ -50,13 +62,12 @@ const RemoteParticipantTile: React.FC<{
 
   return (
     <div className="relative rounded-2xl overflow-hidden bg-[#202c33] border border-[#2a3942] flex items-center justify-center min-h-[180px] shadow-lg">
-      {/* Hidden audio element for remote stream playback */}
-      <audio ref={audioRef} autoPlay playsInline />
-
+      {/* Video is muted so it never conflicts with the dedicated audio sink */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
+        muted
         className={`w-full h-full object-cover ${showVideo ? 'block' : 'hidden'}`}
       />
       {!showVideo && (
@@ -105,6 +116,10 @@ export const GroupCallModal: React.FC<GroupCallModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#111b21] text-white">
+      {/* Dedicated audio sinks for ALL active remote participants in the group call */}
+      {Array.from(remoteStreams?.entries() || []).map(([uId, rStream]) => (
+        <RemoteAudioSink key={uId} userId={uId} stream={rStream} />
+      ))}
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-b from-black/70 to-transparent z-10">
         <div className="flex items-center gap-3">
