@@ -419,53 +419,74 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
-    // Delete a single message
-    socket.on('delete_message', (data: { messageId: string; chatId: string }) => {
-      const { messageId, chatId } = data;
-      store.messages.delete(messageId);
-
-      const chat = store.chats.get(chatId);
-      if (chat) {
-        const remaining = Array.from(store.messages.values())
-          .filter((m) => m.chatId === chatId)
-          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-        chat.lastMessageAt = remaining.length > 0 ? remaining[0].createdAt : chat.createdAt;
-      }
-      store.saveToFile();
-      broadcastMessageDeleted(chatId, messageId);
-    });
-
-    // Clear all messages in a chat
-    socket.on('clear_chat', (data: { chatId: string }) => {
-      const { chatId } = data;
-      for (const [msgId, msg] of store.messages.entries()) {
-        if (msg.chatId === chatId) {
-          store.messages.delete(msgId);
-        }
-      }
-      const chat = store.chats.get(chatId);
-      if (chat) {
-        chat.lastMessageAt = chat.createdAt;
-      }
-      store.saveToFile();
-      broadcastChatCleared(chatId);
-    });
-
-    // Delete an entire chat
-    socket.on('delete_chat', (data: { chatId: string }) => {
-      const { chatId } = data;
-      const chat = store.chats.get(chatId);
-      if (chat) {
-        const memberIds = [...chat.memberIds];
-        for (const [msgId, msg] of store.messages.entries()) {
-          if (msg.chatId === chatId) {
-            store.messages.delete(msgId);
+    // Delete a single message (Soft-delete for user: admin & server preserve full history)
+    socket.on('delete_message', (data: { messageId: string; chatId: string; forEveryone?: boolean }) => {
+      const { messageId, chatId, forEveryone } = data;
+      const senderId = socketUserMap.get(socket.id);
+      const msg = store.messages.get(messageId);
+      if (msg) {
+        if (forEveryone) {
+          msg.isDeletedForEveryone = true;
+          msg.deletedBy = senderId;
+          msg.deletedAt = new Date();
+          store.saveToFile();
+          broadcastMessageDeleted(chatId, messageId);
+        } else {
+          // Delete for this user only (soft hide)
+          if (!msg.deletedForUserIds) msg.deletedForUserIds = [];
+          if (senderId && !msg.deletedForUserIds.includes(senderId)) {
+            msg.deletedForUserIds.push(senderId);
+          }
+          msg.deletedAt = new Date();
+          store.saveToFile();
+          if (senderId) {
+            broadcastMessageDeleted(chatId, messageId, senderId);
+          } else {
+            broadcastMessageDeleted(chatId, messageId);
           }
         }
-        store.chatLabels.delete(chatId);
-        store.chats.delete(chatId);
+      }
+    });
+
+    // Clear all messages in a chat (Soft clear for this user only: server & admin preserve full chat history)
+    socket.on('clear_chat', (data: { chatId: string }) => {
+      const { chatId } = data;
+      const senderId = socketUserMap.get(socket.id);
+      if (senderId) {
+        for (const [_, msg] of store.messages.entries()) {
+          if (msg.chatId === chatId) {
+            if (!msg.deletedForUserIds) msg.deletedForUserIds = [];
+            if (!msg.deletedForUserIds.includes(senderId)) {
+              msg.deletedForUserIds.push(senderId);
+            }
+          }
+        }
         store.saveToFile();
-        broadcastChatDeleted(chatId, memberIds);
+        broadcastChatCleared(chatId, senderId);
+      }
+    });
+
+    // Delete an entire chat (Soft hide for this user: server & admin preserve all chats and history)
+    socket.on('delete_chat', (data: { chatId: string }) => {
+      const { chatId } = data;
+      const senderId = socketUserMap.get(socket.id);
+      const chat = store.chats.get(chatId);
+      if (chat && senderId) {
+        const memberIds = [...chat.memberIds];
+        if (!chat.hiddenForUserIds) chat.hiddenForUserIds = [];
+        if (!chat.hiddenForUserIds.includes(senderId)) {
+          chat.hiddenForUserIds.push(senderId);
+        }
+        for (const [_, msg] of store.messages.entries()) {
+          if (msg.chatId === chatId) {
+            if (!msg.deletedForUserIds) msg.deletedForUserIds = [];
+            if (!msg.deletedForUserIds.includes(senderId)) {
+              msg.deletedForUserIds.push(senderId);
+            }
+          }
+        }
+        store.saveToFile();
+        broadcastChatDeleted(chatId, memberIds, senderId);
       }
     });
 
