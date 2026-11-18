@@ -16,6 +16,15 @@ export interface User {
   businessWebsite?: string;
   isOnline: boolean;
   lastSeen: string;
+  lastLocation?: {
+    lat: number;
+    lng: number;
+    city?: string;
+    country?: string;
+    ip?: string;
+    source?: 'gps' | 'ip';
+    updatedAt: string;
+  };
   createdAt?: string;
 }
 

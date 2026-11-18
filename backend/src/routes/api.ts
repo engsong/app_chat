@@ -924,8 +924,40 @@ apiRouter.get('/admin/users', verifyAdmin, (req, res) => {
       businessName: u.businessName,
       isOnline: u.isOnline,
       lastSeen: u.lastSeen,
+      location: u.lastLocation || null,
       createdAt: u.createdAt,
     }));
+
+  res.json(users);
+});
+
+// Admin Live Map: Geolocation of all participants / online users
+apiRouter.get('/admin/online-locations', verifyAdmin, (req, res) => {
+  const users = Array.from(store.users.values())
+    .filter((u) => Boolean(u.password))
+    .map((u) => {
+      let loc = u.lastLocation;
+      if (!loc) {
+        loc = {
+          lat: 17.9757,
+          lng: 102.6331,
+          city: 'Vientiane',
+          country: 'Laos',
+          source: 'ip' as const,
+          updatedAt: u.lastSeen,
+        };
+      }
+      return {
+        id: u.id,
+        phone: u.phone,
+        name: u.name,
+        avatar: u.avatar,
+        role: u.role || 'user',
+        isOnline: Boolean(u.isOnline),
+        lastSeen: u.lastSeen,
+        location: loc,
+      };
+    });
 
   res.json(users);
 });

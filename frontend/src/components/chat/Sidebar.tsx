@@ -21,6 +21,7 @@ import {
   LogOut,
   Bell,
   BellOff,
+  Smartphone,
 } from 'lucide-react';
 import { Chat, User, Label } from '../../types/index.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
@@ -32,6 +33,7 @@ import {
   sendTestPushNotification,
 } from '../../utils/notifications.js';
 import { NotificationHelpModal } from './NotificationHelpModal.js';
+import { CallPermissionSetupModal } from './CallPermissionSetupModal.js';
 
 interface SidebarProps {
   chats: Chat[];
@@ -91,6 +93,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return isNotificationSupported() && getNotificationPermission() !== 'granted';
   });
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
+  const [showCallSetupModal, setShowCallSetupModal] = useState<boolean>(false);
+
+  const isAndroid = typeof window !== 'undefined' && !!(window as any).AndroidAudioBridge;
+
+  // Auto-detect and prompt call permission setup modal on Android if needed
+  useEffect(() => {
+    if (isAndroid) {
+      try {
+        const bridge = (window as any).AndroidAudioBridge;
+        if (bridge && typeof bridge.getCallPermissionStatus === 'function') {
+          const raw = bridge.getCallPermissionStatus();
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (!parsed.canDrawOverlays || !parsed.isIgnoringBattery || !parsed.notifications) {
+              const hasSeen = localStorage.getItem('ichat_call_setup_prompted');
+              if (!hasSeen) {
+                setShowCallSetupModal(true);
+                localStorage.setItem('ichat_call_setup_prompted', 'true');
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+  }, [isAndroid]);
 
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -142,6 +169,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [showDeleteChatsModal, selectedChatIds, showMoreMenu, searchQuery]);
 
   const handleEnableNotifications = async () => {
+    if (isAndroid) {
+      setShowCallSetupModal(true);
+      return;
+    }
     const res = await requestNotificationPermission();
     setNotifPermission(res);
     if (res === 'granted') {
@@ -386,6 +417,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <PhoneCall className="w-4 h-4 text-[#00a884]" />
                     <span>Calls history</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      setShowCallSetupModal(true);
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-[#182229] hover:text-white flex items-center gap-3 transition-colors text-amber-400 font-medium"
+                  >
+                    <Smartphone className="w-4 h-4 text-amber-400" />
+                    <span>Incoming Call Setup</span>
                   </button>
 
                   <div className="border-t border-[#2a3942] my-1" />
@@ -907,6 +949,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         isOpen={showHelpModal}
         onClose={() => setShowHelpModal(false)}
         onCheckPermission={handleCheckPermissionFromModal}
+      />
+
+      {/* Android Native Incoming Call Setup & Permissions Wizard */}
+      <CallPermissionSetupModal
+        isOpen={showCallSetupModal}
+        onClose={() => setShowCallSetupModal(false)}
       />
     </div>
   );

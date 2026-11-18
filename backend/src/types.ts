@@ -1,3 +1,13 @@
+export interface UserLocation {
+  lat: number;
+  lng: number;
+  city?: string;
+  country?: string;
+  ip?: string;
+  source?: 'gps' | 'ip';
+  updatedAt: Date;
+}
+
 export interface UserData {
   id: string;
   phone: string;
@@ -17,6 +27,7 @@ export interface UserData {
   businessWebsite?: string;
   isOnline: boolean;
   lastSeen: Date;
+  lastLocation?: UserLocation;
   createdAt: Date;
   updatedAt: Date;
 }
