@@ -389,6 +389,14 @@ class InMemoryStore {
       }
     }
 
+    // Prune call history: keep only most recent 30 calls to avoid store bloat
+    if (this.calls.size > 30) {
+      const sortedCalls = Array.from(this.calls.entries()).sort(
+        (a, b) => b[1].startedAt.getTime() - a[1].startedAt.getTime()
+      );
+      this.calls = new Map(sortedCalls.slice(0, 30));
+    }
+
     this.saveToFile();
   }
 

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { User } from '../../types/index.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
+import { compressImage } from '../../utils/imageCompressor.js';
 
 interface BusinessProfileModalProps {
   isOpen: boolean;
@@ -80,18 +81,19 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
     setIsEditing(false);
   };
 
-  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setAvatar(dataUrl);
+    e.target.value = '';
+    try {
+      const compressedAvatar = await compressImage(file, 256, 0.8);
+      setAvatar(compressedAvatar);
       if (onUpdateProfile) {
-        onUpdateProfile({ avatar: dataUrl });
+        onUpdateProfile({ avatar: compressedAvatar });
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Failed to compress avatar:', err);
+    }
   };
 
   return (

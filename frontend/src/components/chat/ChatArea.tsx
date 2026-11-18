@@ -36,6 +36,7 @@ import { soundEffects } from '../../utils/audioTones.js';
 import { EmojiPicker } from './EmojiPicker.js';
 import { LocationPickerModal } from './LocationPickerModal.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
+import { compressImage } from '../../utils/imageCompressor.js';
 
 interface ChatAreaProps {
   chat: Chat;
@@ -390,19 +391,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   };
 
   // 1. Send Image File
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      onSendMessage('', 'image', undefined, dataUrl);
-      soundEffects.playMessagePop();
-    };
-    reader.readAsDataURL(file);
     e.target.value = '';
     setShowAttachMenu(false);
+
+    try {
+      const compressedDataUrl = await compressImage(file, 1280, 0.75);
+      onSendMessage('', 'image', undefined, compressedDataUrl);
+      soundEffects.playMessagePop();
+    } catch (err) {
+      console.error('Failed to compress image:', err);
+    }
   };
 
   // 2. Send Document File

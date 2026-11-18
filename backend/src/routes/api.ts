@@ -123,7 +123,10 @@ apiRouter.get('/push/debug', (req, res) => {
 // ==========================================
 // Get all contacts / users
 apiRouter.get('/users', (req, res) => {
-  const users = Array.from(store.users.values());
+  const users = Array.from(store.users.values()).map((u) => ({
+    ...u,
+    avatar: u.avatar && !u.avatar.startsWith('data:') ? u.avatar : (u.avatar ? `/api/users/${u.id}/avatar` : ''),
+  }));
   res.json(users);
 });
 
@@ -369,7 +372,11 @@ apiRouter.get('/contacts', (req, res) => {
   const contactIds = store.userContacts.get(userId) || new Set();
   const contacts = Array.from(contactIds)
     .map((id) => store.users.get(id))
-    .filter((u): u is UserData => Boolean(u));
+    .filter((u): u is UserData => Boolean(u))
+    .map((u) => ({
+      ...u,
+      avatar: u.avatar && !u.avatar.startsWith('data:') ? u.avatar : (u.avatar ? `/api/users/${u.id}/avatar` : ''),
+    }));
 
   res.json(contacts);
 });
@@ -525,6 +532,19 @@ apiRouter.get('/chats', (req, res) => {
   const userId = req.query.userId as string;
   if (!userId) return res.status(400).json({ error: 'userId is required' });
 
+  // Precompute unread message count map for this userId in a single O(M) pass
+  const unreadCounts = new Map<string, number>();
+  for (const m of store.messages.values()) {
+    if (
+      !m.isDeletedForEveryone &&
+      (!m.deletedForUserIds || !m.deletedForUserIds.includes(userId)) &&
+      m.senderId !== userId &&
+      m.status !== 'read'
+    ) {
+      unreadCounts.set(m.chatId, (unreadCounts.get(m.chatId) || 0) + 1);
+    }
+  }
+
   const userChats = Array.from(store.chats.values())
     .filter((chat) => chat.memberIds.includes(userId))
     .filter((chat) => !chat.hiddenForUserIds || !chat.hiddenForUserIds.includes(userId))
@@ -532,16 +552,9 @@ apiRouter.get('/chats', (req, res) => {
     .map((chat) => {
       const enriched = getEnrichedChat(chat.id, userId);
       if (enriched) {
-        // Calculate unread count specifically for requesting user
-        const chatMessages = Array.from(store.messages.values())
-          .filter((m) => m.chatId === chat.id && !m.isDeletedForEveryone && (!m.deletedForUserIds || !m.deletedForUserIds.includes(userId)));
-        const unreadCount = chatMessages.filter(
-          (m) => m.senderId !== userId && m.status !== 'read'
-        ).length;
-
         return {
           ...enriched,
-          unreadCount,
+          unreadCount: unreadCounts.get(chat.id) || 0,
         };
       }
       return chat;
@@ -661,7 +674,18 @@ apiRouter.get('/chats/:id/messages', (req, res) => {
 
   const messages = uniqueMessages.map((m) => {
     const sender = store.users.get(m.senderId);
-    return { ...m, sender };
+    const senderAvatar = sender?.avatar && !sender.avatar.startsWith('data:')
+      ? sender.avatar
+      : (sender?.avatar ? `/api/users/${sender.id}/avatar` : '');
+    const sanitizedSender = sender ? {
+      id: sender.id,
+      name: sender.name,
+      phone: sender.phone,
+      avatar: senderAvatar,
+      isBusiness: sender.isBusiness,
+      businessName: sender.businessName,
+    } : undefined;
+    return { ...m, sender: sanitizedSender };
   });
 
   res.json(messages);
