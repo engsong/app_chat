@@ -1,32 +1,5 @@
 # ------------------------------------
-# Stage 1: Build Frontend Assets
-# ------------------------------------
-FROM node:22-alpine AS builder
-
-WORKDIR /app
-
-ENV NODE_OPTIONS="--dns-result-order=ipv4first"
-
-COPY package*.json ./
-COPY tsconfig*.json ./
-COPY vite.config.ts ./
-COPY tailwind.config.js ./
-COPY postcss.config.js ./
-COPY index.html ./
-COPY public/ ./public/
-
-RUN npm config set registry https://registry.npmmirror.com && \
-    npm config set fetch-retries 5 && \
-    npm config set fetch-retry-mintimeout 20000 && \
-    npm config set fetch-retry-maxtimeout 120000 && \
-    npm install --no-audit --ignore-scripts
-
-COPY src/ ./src/
-
-RUN npm run build
-
-# ------------------------------------
-# Stage 2: Serve with Nginx Alpine
+# Production Nginx Container for Frontend SPA
 # ------------------------------------
 FROM nginx:alpine
 
@@ -58,7 +31,8 @@ server {
 }
 EOF
 
-COPY --from=builder /app/dist /usr/share/nginx/html
+# Copy prebuilt production assets
+COPY dist /usr/share/nginx/html
 
 EXPOSE 80
 

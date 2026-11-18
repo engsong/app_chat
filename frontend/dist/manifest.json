@@ -1,0 +1,25 @@
+{
+  "name": "IChat Messenger",
+  "short_name": "IChat",
+  "description": "Ultra-Fast Real-Time Messenger with Voice & Video Calls",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#111b21",
+  "theme_color": "#202c33",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

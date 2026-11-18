@@ -1,0 +1,324 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.store = exports.isPhoneMatch = exports.formatStandardLaoPhone = exports.normalizePhone = void 0;
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const DATA_DIR = process.env.DATA_DIR || path_1.default.resolve(process.cwd(), 'data');
+const STORE_FILE = path_1.default.join(DATA_DIR, 'store.json');
+const normalizePhone = (p) => {
+    if (!p)
+        return '';
+    let digits = p.replace(/\D/g, '');
+    // Strip Laos country code (+856)
+    if (digits.startsWith('856')) {
+        digits = digits.substring(3);
+    }
+    // Strip leading 0
+    if (digits.startsWith('0')) {
+        digits = digits.substring(1);
+    }
+    return digits;
+};
+exports.normalizePhone = normalizePhone;
+const formatStandardLaoPhone = (rawPhone) => {
+    if (!rawPhone)
+        return '';
+    const norm = (0, exports.normalizePhone)(rawPhone);
+    if (!norm)
+        return rawPhone.trim();
+    // 8-digit local mobile number (e.g. 54245616, 55555555, 9195639) -> prefix with 020
+    if (norm.length === 8) {
+        return '020' + norm;
+    }
+    // 10 digits starting with 20 -> 020XXXXXXXX
+    if (norm.startsWith('20') && norm.length === 10) {
+        return '0' + norm;
+    }
+    // 9 or 10 digits starting with 30 -> 030XXXXXXX
+    if (norm.startsWith('30') && (norm.length === 9 || norm.length === 10)) {
+        return '0' + norm;
+    }
+    if (norm.startsWith('0')) {
+        return norm;
+    }
+    return '0' + norm;
+};
+exports.formatStandardLaoPhone = formatStandardLaoPhone;
+const isPhoneMatch = (phone1, phone2) => {
+    const n1 = (0, exports.normalizePhone)(phone1);
+    const n2 = (0, exports.normalizePhone)(phone2);
+    if (!n1 || !n2)
+        return false;
+    if (n1 === n2)
+        return true;
+    // If one includes 20/30 prefix (e.g. 2054245616) and other is 8-digit subscriber (54245616)
+    if (n1.endsWith(n2) || n2.endsWith(n1)) {
+        const minLen = Math.min(n1.length, n2.length);
+        if (minLen >= 8) {
+            return true;
+        }
+    }
+    return false;
+};
+exports.isPhoneMatch = isPhoneMatch;
+class InMemoryStore {
+    users = new Map();
+    chats = new Map();
+    messages = new Map();
+    products = new Map();
+    quickReplies = new Map();
+    labels = new Map();
+    chatLabels = new Map(); // chatId -> Set<labelId>
+    statuses = new Map();
+    calls = new Map();
+    userContacts = new Map(); // userId -> Set<contactUserId>
+    pushSubscriptions = new Map(); // userId -> PushSubscription[]
+    devices = new Map(); // deviceId -> DeviceData
+    constructor() {
+        if (!this.loadFromFile()) {
+            this.seedInitialData();
+            this.saveToFile();
+        }
+    }
+    saveToFile() {
+        try {
+            if (!fs_1.default.existsSync(DATA_DIR)) {
+                fs_1.default.mkdirSync(DATA_DIR, { recursive: true });
+            }
+            const data = {
+                users: Array.from(this.users.entries()),
+                chats: Array.from(this.chats.entries()),
+                messages: Array.from(this.messages.entries()),
+                products: Array.from(this.products.entries()),
+                quickReplies: Array.from(this.quickReplies.entries()),
+                labels: Array.from(this.labels.entries()),
+                chatLabels: Array.from(this.chatLabels.entries()).map(([k, set]) => [k, Array.from(set)]),
+                statuses: Array.from(this.statuses.entries()),
+                calls: Array.from(this.calls.entries()),
+                userContacts: Array.from(this.userContacts.entries()).map(([k, set]) => [k, Array.from(set)]),
+                pushSubscriptions: Array.from(this.pushSubscriptions.entries()),
+                devices: Array.from(this.devices.entries()),
+            };
+            fs_1.default.writeFileSync(STORE_FILE, JSON.stringify(data), 'utf8');
+        }
+        catch (err) {
+            console.error('[Store] Failed to save store to file:', err);
+        }
+    }
+    loadFromFile() {
+        try {
+            if (!fs_1.default.existsSync(STORE_FILE))
+                return false;
+            const raw = fs_1.default.readFileSync(STORE_FILE, 'utf8');
+            const data = JSON.parse(raw);
+            if (!data.users || data.users.length === 0)
+                return false;
+            this.users = new Map(data.users.map(([k, v]) => {
+                const isAdmin = (0, exports.isPhoneMatch)(v.phone, '02054245616') || v.phone?.toLowerCase() === 'admin' || v.role === 'admin';
+                return [
+                    k,
+                    {
+                        ...v,
+                        role: isAdmin ? 'admin' : (v.role || 'user'),
+                        status: isAdmin ? 'approved' : (v.status || (v.password ? 'approved' : 'pending')),
+                        createdAt: v.createdAt ? new Date(v.createdAt) : new Date(),
+                        updatedAt: v.updatedAt ? new Date(v.updatedAt) : new Date(),
+                        lastSeen: v.lastSeen ? new Date(v.lastSeen) : new Date(),
+                    },
+                ];
+            }));
+            this.chats = new Map(data.chats.map(([k, v]) => [
+                k,
+                {
+                    ...v,
+                    createdAt: v.createdAt ? new Date(v.createdAt) : new Date(),
+                    updatedAt: v.updatedAt ? new Date(v.updatedAt) : new Date(),
+                    lastMessageAt: v.lastMessageAt ? new Date(v.lastMessageAt) : new Date(),
+                },
+            ]));
+            this.messages = new Map(data.messages.map(([k, v]) => [
+                k,
+                {
+                    ...v,
+                    createdAt: v.createdAt ? new Date(v.createdAt) : new Date(),
+                },
+            ]));
+            this.products = new Map((data.products || []).map(([k, v]) => [
+                k,
+                { ...v, createdAt: v.createdAt ? new Date(v.createdAt) : new Date() },
+            ]));
+            this.quickReplies = new Map((data.quickReplies || []).map(([k, v]) => [
+                k,
+                { ...v, createdAt: v.createdAt ? new Date(v.createdAt) : new Date() },
+            ]));
+            this.labels = new Map((data.labels || []).map(([k, v]) => [
+                k,
+                { ...v, createdAt: v.createdAt ? new Date(v.createdAt) : new Date() },
+            ]));
+            this.chatLabels = new Map((data.chatLabels || []).map(([k, arr]) => [k, new Set(arr)]));
+            this.statuses = new Map((data.statuses || []).map(([k, v]) => [
+                k,
+                {
+                    ...v,
+                    createdAt: v.createdAt ? new Date(v.createdAt) : new Date(),
+                    expiresAt: v.expiresAt ? new Date(v.expiresAt) : new Date(),
+                },
+            ]));
+            this.userContacts = new Map((data.userContacts || []).map(([k, arr]) => [k, new Set(arr)]));
+            this.calls = new Map((data.calls || []).map(([k, v]) => [
+                k,
+                {
+                    ...v,
+                    startedAt: v.startedAt ? new Date(v.startedAt) : new Date(),
+                    endedAt: v.endedAt ? new Date(v.endedAt) : undefined,
+                },
+            ]));
+            this.pushSubscriptions = new Map(data.pushSubscriptions || []);
+            this.devices = new Map(data.devices || []);
+            // Clean up legacy demo accounts
+            const demoIds = ['usr-biz-1', 'usr-client-2', 'usr-client-3', 'usr-biz-4'];
+            demoIds.forEach((dId) => {
+                this.users.delete(dId);
+                this.userContacts.delete(dId);
+            });
+            // Remove demo chats
+            for (const [cId, chat] of Array.from(this.chats.entries())) {
+                if (cId === 'chat-1' || cId === 'chat-group-1') {
+                    this.chats.delete(cId);
+                    continue;
+                }
+                // Remove chats that contain only demo ids
+                chat.memberIds = chat.memberIds.filter((m) => !demoIds.includes(m));
+                if (chat.memberIds.length === 0) {
+                    this.chats.delete(cId);
+                }
+            }
+            // Remove demo messages
+            for (const [mId, msg] of Array.from(this.messages.entries())) {
+                if (demoIds.includes(msg.senderId) || msg.chatId === 'chat-1' || msg.chatId === 'chat-group-1') {
+                    this.messages.delete(mId);
+                }
+            }
+            // Clean up user contacts references to demo ids
+            for (const [uId, contacts] of this.userContacts.entries()) {
+                demoIds.forEach((dId) => contacts.delete(dId));
+            }
+            // Consolidate duplicate phone accounts (e.g. dummy contact stub vs real registered user)
+            this.consolidateUsers();
+            console.log(`[Store] Loaded persistent store: ${this.users.size} users, ${this.chats.size} chats, ${this.messages.size} messages.`);
+            return true;
+        }
+        catch (err) {
+            console.error('[Store] Failed to load store from file:', err);
+            return false;
+        }
+    }
+    consolidateUsers() {
+        const allUsers = Array.from(this.users.values());
+        const processedPhones = new Set();
+        for (const u of allUsers) {
+            const norm = (0, exports.normalizePhone)(u.phone);
+            if (!norm || processedPhones.has(norm))
+                continue;
+            // Find all user records matching this phone
+            const matchingUsers = allUsers.filter((cand) => (0, exports.isPhoneMatch)(cand.phone, u.phone));
+            if (matchingUsers.length > 1) {
+                // Find the registered user (one with a password or non-generated name)
+                const primaryUser = matchingUsers.find((m) => Boolean(m.password)) || matchingUsers[0];
+                const secondaryUsers = matchingUsers.filter((m) => m.id !== primaryUser.id);
+                for (const sec of secondaryUsers) {
+                    console.log(`[Store] Merging duplicate user ${sec.id} (${sec.phone}) into primary user ${primaryUser.id} (${primaryUser.name})`);
+                    // 1. Update chats memberIds
+                    for (const [_, chat] of this.chats.entries()) {
+                        if (chat.memberIds.includes(sec.id)) {
+                            chat.memberIds = Array.from(new Set(chat.memberIds.map((m) => (m === sec.id ? primaryUser.id : m))));
+                        }
+                    }
+                    // 2. Update messages senderId
+                    for (const [_, msg] of this.messages.entries()) {
+                        if (msg.senderId === sec.id) {
+                            msg.senderId = primaryUser.id;
+                        }
+                    }
+                    // 3. Update userContacts
+                    const secContacts = this.userContacts.get(sec.id);
+                    if (secContacts) {
+                        if (!this.userContacts.has(primaryUser.id)) {
+                            this.userContacts.set(primaryUser.id, new Set());
+                        }
+                        const primSet = this.userContacts.get(primaryUser.id);
+                        secContacts.forEach((c) => {
+                            if (c !== primaryUser.id)
+                                primSet.add(c);
+                        });
+                        this.userContacts.delete(sec.id);
+                    }
+                    for (const [_, cSet] of this.userContacts.entries()) {
+                        if (cSet.has(sec.id)) {
+                            cSet.delete(sec.id);
+                            cSet.add(primaryUser.id);
+                        }
+                    }
+                    // 4. Remove secondary user
+                    this.users.delete(sec.id);
+                }
+            }
+            processedPhones.add(norm);
+        }
+        // Clean up any test accounts and format phones to standard format
+        for (const [uId, u] of Array.from(this.users.entries())) {
+            if (u.phone && !u.phone.startsWith('usr-')) {
+                u.phone = (0, exports.formatStandardLaoPhone)(u.phone);
+            }
+            if (u.phone.startsWith('usr-') || u.name.startsWith('usr-')) {
+                this.users.delete(uId);
+                this.userContacts.delete(uId);
+            }
+            else if ((0, exports.isPhoneMatch)(u.phone, '02054245616') || u.phone?.toLowerCase() === 'admin') {
+                // Ensure Engsong's name is set properly and is admin
+                if (u.name === '02054245616') {
+                    u.name = 'Engsong';
+                }
+                u.about = 'Hey there! I am using IChat.';
+                u.role = 'admin';
+                u.status = 'approved';
+            }
+        }
+        // Resolve memberIds in chats and prune ghost chats
+        for (const [cId, chat] of Array.from(this.chats.entries())) {
+            chat.memberIds = chat.memberIds.map((mId) => {
+                if (this.users.has(mId))
+                    return mId;
+                const byPhone = Array.from(this.users.values()).find((u) => u.phone === mId || (0, exports.isPhoneMatch)(u.phone, mId));
+                if (byPhone)
+                    return byPhone.id;
+                return mId;
+            });
+            // Keep only members that exist in users
+            chat.memberIds = chat.memberIds.filter((mId) => this.users.has(mId));
+            if (chat.memberIds.length === 0) {
+                this.chats.delete(cId);
+            }
+        }
+        // Prune messages for deleted chats or unknown senders
+        for (const [mId, msg] of Array.from(this.messages.entries())) {
+            if (!this.chats.has(msg.chatId) || !this.users.has(msg.senderId)) {
+                this.messages.delete(mId);
+            }
+        }
+        // Prune call history: keep only most recent 30 calls to avoid store bloat
+        if (this.calls.size > 30) {
+            const sortedCalls = Array.from(this.calls.entries()).sort((a, b) => b[1].startedAt.getTime() - a[1].startedAt.getTime());
+            this.calls = new Map(sortedCalls.slice(0, 30));
+        }
+        this.saveToFile();
+    }
+    seedInitialData() {
+        // Fresh store starts clean with no demo users
+        console.log('[Store] Fresh store initialized.');
+    }
+}
+exports.store = new InMemoryStore();

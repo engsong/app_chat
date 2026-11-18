@@ -3,11 +3,12 @@ node_modules/
 */node_modules/
 
 # Production builds
-dist/
-*/dist/
 build/
 */build/
 .gradle/
+*/.gradle/
+!frontend/dist/
+!backend/dist/
 */.gradle/
 
 # Environment files
