@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { store, isPhoneMatch, normalizePhone } from '../store.js';
+import { store, isPhoneMatch, normalizePhone, formatStandardLaoPhone } from '../store.js';
 import { UserData, ChatData } from '../types.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -174,26 +174,33 @@ apiRouter.post('/auth/register', (req, res) => {
   }
 
   const chosenAvatar = avatar || '';
+  const standardPhone = formatStandardLaoPhone(phone);
 
   // Determine if this user should be admin or auto-approved
-  const isAdminPhone = isPhoneMatch(phone, '02054245616') || phone.toLowerCase().trim() === 'admin';
+  const isAdminPhone = isPhoneMatch(standardPhone, '02054245616') || standardPhone.toLowerCase().trim() === 'admin';
   const existingAdmins = Array.from(store.users.values()).filter((u) => u.role === 'admin' && Boolean(u.password));
   const isFirstAdmin = existingAdmins.length === 0;
   const shouldBeAdmin = isAdminPhone || isFirstAdmin;
   const initialRole: 'admin' | 'user' = shouldBeAdmin ? 'admin' : 'user';
   const initialStatus: 'approved' | 'pending' = shouldBeAdmin ? 'approved' : 'pending';
 
-  // Check if account already exists for this phone
-  const existingUser = Array.from(store.users.values()).find((u) => isPhoneMatch(u.phone, phone));
+  // Check if account already exists for this phone (strictly prevent duplicates across all formats)
+  const existingUser = Array.from(store.users.values()).find(
+    (u) => isPhoneMatch(u.phone, phone) || isPhoneMatch(u.phone, standardPhone) || u.phone === standardPhone
+  );
+
   if (existingUser) {
     // If it is already a fully registered account with a password
     if (existingUser.password) {
-      return res.status(400).json({ error: 'An account with this phone number already exists. Please log in.' });
+      return res.status(400).json({
+        error: 'This phone number is already registered. Please log in.',
+        phone: standardPhone,
+      });
     }
 
     // If it was a contact stub created when someone added this phone number, claim and activate it!
     existingUser.name = name.trim();
-    existingUser.phone = phone.trim();
+    existingUser.phone = standardPhone;
     existingUser.password = password;
     existingUser.avatar = chosenAvatar;
     existingUser.role = shouldBeAdmin ? 'admin' : (existingUser.role || 'user');
@@ -223,7 +230,7 @@ apiRouter.post('/auth/register', (req, res) => {
 
   const newUser: UserData = {
     id: `usr-${uuidv4()}`,
-    phone: phone.trim(),
+    phone: standardPhone,
     password,
     name: name.trim(),
     avatar: chosenAvatar,
@@ -406,7 +413,7 @@ apiRouter.post('/contacts', (req, res) => {
   // 3. If still not found, create contact stub for this phone or name
   if (!contactUser) {
     if (cleanDigits.length >= 6) {
-      const formattedPhone = query.trim();
+      const formattedPhone = formatStandardLaoPhone(query.trim());
       contactUser = {
         id: `usr-${uuidv4()}`,
         phone: formattedPhone,

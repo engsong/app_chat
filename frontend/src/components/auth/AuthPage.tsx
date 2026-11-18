@@ -190,9 +190,24 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
 
           {/* Error Alert Banner */}
           {errorMsg && (
-            <div className="mb-4 p-3 bg-red-950/60 border border-red-500/40 rounded-xl text-xs text-red-200 flex items-center gap-2 animate-shake">
-              <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-              <span>{errorMsg}</span>
+            <div className="mb-4 p-3 bg-red-950/60 border border-red-500/40 rounded-xl text-xs text-red-200 flex flex-col gap-2 animate-shake">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+              {(errorMsg.toLowerCase().includes('already registered') || errorMsg.toLowerCase().includes('already exists')) && !isLoginTab && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLoginTab(true);
+                    setLoginPhone(regPhone.trim());
+                    setErrorMsg('');
+                  }}
+                  className="self-start text-[11px] font-semibold text-[#00a884] hover:underline flex items-center gap-1"
+                >
+                  <span>→ Click here to Log In with this number / แตะที่นี่เพื่อเข้าสู่ระบบ</span>
+                </button>
+              )}
             </div>
           )}
 

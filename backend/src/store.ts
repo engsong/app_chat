@@ -8,7 +8,38 @@ const STORE_FILE = path.join(DATA_DIR, 'store.json');
 
 export const normalizePhone = (p?: string | null): string => {
   if (!p) return '';
-  return p.replace(/\D/g, '');
+  let digits = p.replace(/\D/g, '');
+  // Strip Laos country code (+856)
+  if (digits.startsWith('856')) {
+    digits = digits.substring(3);
+  }
+  // Strip leading 0
+  if (digits.startsWith('0')) {
+    digits = digits.substring(1);
+  }
+  return digits;
+};
+
+export const formatStandardLaoPhone = (rawPhone?: string | null): string => {
+  if (!rawPhone) return '';
+  const norm = normalizePhone(rawPhone);
+  if (!norm) return rawPhone.trim();
+  // 8-digit local mobile number (e.g. 54245616, 55555555, 9195639) -> prefix with 020
+  if (norm.length === 8) {
+    return '020' + norm;
+  }
+  // 10 digits starting with 20 -> 020XXXXXXXX
+  if (norm.startsWith('20') && norm.length === 10) {
+    return '0' + norm;
+  }
+  // 9 or 10 digits starting with 30 -> 030XXXXXXX
+  if (norm.startsWith('30') && (norm.length === 9 || norm.length === 10)) {
+    return '0' + norm;
+  }
+  if (norm.startsWith('0')) {
+    return norm;
+  }
+  return '0' + norm;
 };
 
 export const isPhoneMatch = (phone1?: string | null, phone2?: string | null): boolean => {
@@ -16,10 +47,12 @@ export const isPhoneMatch = (phone1?: string | null, phone2?: string | null): bo
   const n2 = normalizePhone(phone2);
   if (!n1 || !n2) return false;
   if (n1 === n2) return true;
-  // Match by minimum common suffix (e.g. 02054245616 and 54245616 or +8562054245616)
-  const minLen = Math.min(n1.length, n2.length);
-  if (minLen >= 7) {
-    return n1.slice(-minLen) === n2.slice(-minLen);
+  // If one includes 20/30 prefix (e.g. 2054245616) and other is 8-digit subscriber (54245616)
+  if (n1.endsWith(n2) || n2.endsWith(n1)) {
+    const minLen = Math.min(n1.length, n2.length);
+    if (minLen >= 8) {
+      return true;
+    }
   }
   return false;
 };
@@ -314,8 +347,11 @@ class InMemoryStore {
       processedPhones.add(norm);
     }
 
-    // Clean up any test accounts with phone starting with usr-
+    // Clean up any test accounts and format phones to standard format
     for (const [uId, u] of Array.from(this.users.entries())) {
+      if (u.phone && !u.phone.startsWith('usr-')) {
+        u.phone = formatStandardLaoPhone(u.phone);
+      }
       if (u.phone.startsWith('usr-') || u.name.startsWith('usr-')) {
         this.users.delete(uId);
         this.userContacts.delete(uId);
