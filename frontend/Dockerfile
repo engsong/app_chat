@@ -5,6 +5,8 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
+ENV NODE_OPTIONS="--dns-result-order=ipv4first"
+
 COPY package*.json ./
 COPY tsconfig*.json ./
 COPY vite.config.ts ./
