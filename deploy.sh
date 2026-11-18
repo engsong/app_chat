@@ -22,7 +22,8 @@ if [ -f "./nginx/chat.on-excapp.app.conf" ]; then
 fi
 
 echo "🐳 Building Docker images..."
-docker compose build
+docker compose build whatsapp_backend
+docker compose build whatsapp_frontend
 
 echo "🔄 Removing previous container instances to prevent conflict..."
 docker rm -f whatsapp_frontend whatsapp_backend 2>/dev/null || true

@@ -13,7 +13,7 @@ COPY tsconfig.json ./
 RUN npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
-    npm install --no-audit
+    npm install --no-audit --ignore-scripts
 
 # Copy source code and Prisma schema
 COPY src/ ./src/
@@ -34,18 +34,11 @@ ENV NODE_OPTIONS="--dns-result-order=ipv4first"
 ENV NODE_ENV=production
 ENV PORT=5000
 
-# Install production dependencies only
 COPY package*.json ./
-RUN npm config set fetch-retries 5 && \
-    npm config set fetch-retry-mintimeout 20000 && \
-    npm config set fetch-retry-maxtimeout 120000 && \
-    npm install --omit=dev --no-audit
-
-# Copy compiled files and prisma schema from builder
+# Copy installed dependencies and compiled dist from builder stage
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Create upload directory
 RUN mkdir -p /app/uploads
