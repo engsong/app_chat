@@ -43,13 +43,13 @@ const RemoteAudioSink: React.FC<{ userId: string; stream: MediaStream }> = ({ us
     }
   }, [stream, userId]);
 
-  // Keep element in active DOM flow without visual obstruction so WebView never suspends playback
+  // Keep element in active DOM flow on-screen without visual obstruction so WebView never suspends playback
   return (
     <audio
       ref={audioRef}
       autoPlay
       playsInline
-      style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none' }}
+      className="absolute top-0 left-0 w-1 h-1 opacity-0 pointer-events-none"
     />
   );
 };
@@ -59,7 +59,30 @@ const RemoteParticipantTile: React.FC<{
   stream?: MediaStream;
 }> = ({ participant, stream }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const [hasVideoTrack, setHasVideoTrack] = useState(false);
+
+  // Dedicated on-screen audio playback for this participant
+  useEffect(() => {
+    if (audioRef.current && stream) {
+      audioRef.current.srcObject = stream;
+      audioRef.current.volume = 1.0;
+      audioRef.current.muted = false;
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn(`[RemoteParticipantTile:${participant.name}] Audio autoplay:`, err);
+          const unlock = () => {
+            audioRef.current?.play().catch(() => {});
+            window.removeEventListener('click', unlock);
+            window.removeEventListener('touchstart', unlock);
+          };
+          window.addEventListener('click', unlock);
+          window.addEventListener('touchstart', unlock);
+        });
+      }
+    }
+  }, [stream]);
 
   useEffect(() => {
     if (!stream) {
@@ -98,7 +121,14 @@ const RemoteParticipantTile: React.FC<{
 
   return (
     <div className="relative rounded-2xl overflow-hidden bg-[#202c33] border border-[#2a3942] flex items-center justify-center min-h-[180px] shadow-lg">
-      {/* Video is muted so it never conflicts with the dedicated audio sink */}
+      {/* On-screen audio sink for this participant (guarantees Android WebView audio decoding) */}
+      <audio
+        ref={audioRef}
+        autoPlay
+        playsInline
+        className="absolute top-0 left-0 w-1 h-1 opacity-0 pointer-events-none"
+      />
+
       <video
         ref={videoRef}
         autoPlay

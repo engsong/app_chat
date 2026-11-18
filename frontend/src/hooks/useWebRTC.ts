@@ -71,7 +71,7 @@ export function useWebRTC(
   const [isVideoDisabled, setIsVideoDisabled] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(false);
 
   // Group Call States
   const [inGroupCall, setInGroupCall] = useState(false);
@@ -232,7 +232,7 @@ export function useWebRTC(
         (window as any).AndroidAudioBridge.resetAudioMode();
       } catch (_) {}
     }
-    setIsSpeakerOn(true);
+    setIsSpeakerOn(false);
   }, []);
 
   // Toggle Speakerphone (Earpiece vs Loudspeaker)
@@ -299,6 +299,7 @@ export function useWebRTC(
       setRemoteUserAvatar(targetAvatar);
       setIsCalling(true);
       soundEffects.startOutgoingRingtone();
+      toggleSpeaker(false);
 
       const stream = await getMediaStream(video);
 
@@ -417,6 +418,7 @@ export function useWebRTC(
 
     setIncomingCall(null);
     setCallActive(true);
+    toggleSpeaker(false);
     startTimer();
   };
 
@@ -550,7 +552,6 @@ export function useWebRTC(
 
           setIsVideoCall(true);
           setIsVideoDisabled(false);
-          toggleSpeaker(true);
 
           // Notify remote peer to switch to video UI (1-on-1 call)
           if (!inGroupCall && socket && callPartnerIdRef.current) {
@@ -636,7 +637,7 @@ export function useWebRTC(
     setInGroupCall(true);
     setIsVideoCall(video);
     soundEffects.playConnectTone();
-    toggleSpeaker(true);
+    toggleSpeaker(false);
 
     const stream = await getMediaStream(video);
 
@@ -696,6 +697,10 @@ export function useWebRTC(
       } catch (err) {
         console.warn(`[GroupWebRTC] Error adding audio track to ${targetUserId}:`, err);
       }
+    } else {
+      try {
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+      } catch (_) {}
     }
 
     // Add video track or video receiver transceiver
@@ -721,7 +726,7 @@ export function useWebRTC(
 
       let currentStream = groupStreamsRef.current.get(targetUserId);
       if (!currentStream) {
-        currentStream = new MediaStream();
+        currentStream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream();
       }
       if (!currentStream.getTracks().some((t) => t.id === event.track.id)) {
         currentStream.addTrack(event.track);
@@ -921,6 +926,11 @@ export function useWebRTC(
 
         const pc = await createPeerForGroupMember(callerId, false, stream);
         if (!pc) return;
+
+        if (pc.signalingState === 'have-remote-offer') {
+          console.log('[GroupWebRTC] Duplicate offer ignored for caller:', callerId);
+          return;
+        }
 
         try {
           const transceivers = pc.getTransceivers();

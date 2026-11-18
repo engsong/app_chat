@@ -37,14 +37,26 @@ public class MainActivity extends BridgeActivity {
                             if (audioManager != null) {
                                 audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    List<AudioDeviceInfo> devices = audioManager.getAvailableCommunicationDevices();
-                                    for (AudioDeviceInfo device : devices) {
-                                        if (on && device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
-                                            audioManager.setCommunicationDevice(device);
-                                            break;
-                                        } else if (!on && device.getType() == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) {
-                                            audioManager.setCommunicationDevice(device);
-                                            break;
+                                    if (on) {
+                                        List<AudioDeviceInfo> devices = audioManager.getAvailableCommunicationDevices();
+                                        for (AudioDeviceInfo device : devices) {
+                                            if (device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
+                                                audioManager.setCommunicationDevice(device);
+                                                break;
+                                            }
+                                        }
+                                    } else {
+                                        boolean earpieceFound = false;
+                                        List<AudioDeviceInfo> devices = audioManager.getAvailableCommunicationDevices();
+                                        for (AudioDeviceInfo device : devices) {
+                                            if (device.getType() == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) {
+                                                audioManager.setCommunicationDevice(device);
+                                                earpieceFound = true;
+                                                break;
+                                            }
+                                        }
+                                        if (!earpieceFound) {
+                                            audioManager.clearCommunicationDevice();
                                         }
                                     }
                                 }

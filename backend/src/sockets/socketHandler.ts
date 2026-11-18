@@ -989,6 +989,12 @@ export function setupSocketHandlers(io: Server) {
     }) => {
       const payload = { signal: data.signal, callerId: data.callerId };
       io.to(`user_${data.userToSignal}`).emit('receiving_group_signal', payload);
+      const targetSockets = userSocketMap.get(data.userToSignal);
+      if (targetSockets) {
+        targetSockets.forEach((sId) => {
+          io.to(sId).emit('receiving_group_signal', payload);
+        });
+      }
     });
 
     socket.on('group_ice_candidate', (data: {
@@ -998,6 +1004,12 @@ export function setupSocketHandlers(io: Server) {
     }) => {
       const payload = { candidate: data.candidate, from: data.callerId || socketUserMap.get(socket.id) };
       io.to(`user_${data.userToSignal}`).emit('receiving_group_ice_candidate', payload);
+      const targetSockets = userSocketMap.get(data.userToSignal);
+      if (targetSockets) {
+        targetSockets.forEach((sId) => {
+          io.to(sId).emit('receiving_group_ice_candidate', payload);
+        });
+      }
     });
 
     socket.on('switch_group_call_to_video', (data: { groupId: string; isVideo?: boolean }) => {
