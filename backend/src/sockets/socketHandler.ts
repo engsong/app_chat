@@ -58,23 +58,27 @@ export function getEnrichedChat(chatId: string, forUserId?: string) {
 
   const members = chat.memberIds.map((mId) => {
     const u = store.users.get(mId);
+    const sanitizedUser = u ? {
+      ...u,
+      avatar: (u.avatar && !u.avatar.startsWith('data:')) ? u.avatar : (u.avatar ? `/api/users/${u.id}/avatar` : ''),
+    } : {
+      id: mId,
+      phone: '',
+      name: 'User',
+      avatar: '',
+      about: 'Hey there! I am using IChat.',
+      isBusiness: false,
+      isOnline: false,
+      lastSeen: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
     return {
       id: `cm-${mId}`,
       chatId: chat.id,
       userId: mId,
       role: 'member' as const,
-      user: u || {
-        id: mId,
-        phone: '',
-        name: 'User',
-        avatar: '',
-        about: 'Hey there! I am using IChat.',
-        isBusiness: false,
-        isOnline: false,
-        lastSeen: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
+      user: sanitizedUser,
     };
   });
 
@@ -145,9 +149,31 @@ export function broadcastChatDeleted(chatId: string, memberIds: string[], forUse
   }
 }
 
+export function sanitizeUserForBroadcast(user: any) {
+  if (!user) return user;
+  const avatarUrl =
+    user.avatar && !user.avatar.startsWith('data:')
+      ? user.avatar
+      : user.avatar
+      ? `/api/users/${user.id}/avatar`
+      : '';
+  return {
+    ...user,
+    avatar: avatarUrl,
+  };
+}
+
 export function broadcastUserUpdated(user: any) {
   if (!ioInstance) return;
-  ioInstance.emit('user_updated', { user });
+  const sanitized = sanitizeUserForBroadcast(user);
+  ioInstance.emit('user_updated', { user: sanitized });
+  ioInstance.to('admin_monitoring_room').emit('admin_user_updated', { user: sanitized });
+}
+
+export function broadcastNewUserRegistered(user: any) {
+  if (!ioInstance) return;
+  const sanitized = sanitizeUserForBroadcast(user);
+  ioInstance.to('admin_monitoring_room').emit('admin_new_user_registered', { user: sanitized });
 }
 
 interface ActiveCallSession {

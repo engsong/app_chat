@@ -137,7 +137,7 @@ class InMemoryStore {
         pushSubscriptions: Array.from(this.pushSubscriptions.entries()),
         devices: Array.from(this.devices.entries()),
       };
-      fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), 'utf8');
+      fs.writeFileSync(STORE_FILE, JSON.stringify(data), 'utf8');
     } catch (err) {
       console.error('[Store] Failed to save store to file:', err);
     }

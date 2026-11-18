@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ShieldAlert,
   Users,
@@ -111,7 +111,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/admin/users?status=${userFilter}`, {
+      const res = await fetch('/api/admin/users?status=all', {
         headers: { 'x-admin-id': currentUser.id },
       });
       if (res.ok) {
@@ -161,13 +161,14 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    fetchOverview();
-    if (activeTab === 'users') {
-      fetchUsers();
+    if (activeTab === 'users' || activeTab === 'overview') {
+      Promise.all([fetchOverview(), fetchUsers()]);
     } else if (activeTab === 'chats') {
       fetchChats();
+    } else if (activeTab === 'map') {
+      fetchOnlineLocations();
     }
-  }, [isOpen, activeTab, userFilter]);
+  }, [isOpen, activeTab]);
 
   const handleApprove = async (userId: string) => {
     try {
@@ -180,7 +181,15 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
         setUsers((prev) =>
           prev.map((u) => (u.id === userId ? { ...u, status: 'approved' } : u))
         );
-        fetchOverview();
+        setOverview((prev) =>
+          prev
+            ? {
+                ...prev,
+                pendingCount: Math.max(0, prev.pendingCount - 1),
+                approvedCount: prev.approvedCount + 1,
+              }
+            : null
+        );
       }
     } catch (e) {
       console.error('Error approving user:', e);
@@ -200,7 +209,15 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
         setUsers((prev) =>
           prev.map((u) => (u.id === userId ? { ...u, status: 'rejected' } : u))
         );
-        fetchOverview();
+        setOverview((prev) =>
+          prev
+            ? {
+                ...prev,
+                pendingCount: Math.max(0, prev.pendingCount - 1),
+                rejectedCount: prev.rejectedCount + 1,
+              }
+            : null
+        );
       }
     } catch (e) {
       console.error('Error rejecting user:', e);
@@ -240,7 +257,14 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
       });
       if (res.ok) {
         setUsers((prev) => prev.filter((u) => u.id !== userId));
-        fetchOverview();
+        setOverview((prev) =>
+          prev
+            ? {
+                ...prev,
+                totalUsers: Math.max(0, prev.totalUsers - 1),
+              }
+            : null
+        );
       }
     } catch (e) {
       console.error('Error deleting user:', e);
@@ -303,6 +327,13 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
               : u
           )
         );
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.id === data.userId
+              ? { ...u, location: data.location, isOnline: data.isOnline }
+              : u
+          )
+        );
       };
 
       const handleStatusUpdate = (data: { userId: string; isOnline: boolean; lastSeen: string }) => {
@@ -313,15 +344,53 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
               : u
           )
         );
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.id === data.userId
+              ? { ...u, isOnline: data.isOnline, lastSeen: data.lastSeen }
+              : u
+          )
+        );
+      };
+
+      const handleNewUserRegistered = (data: { user: User }) => {
+        if (!data?.user) return;
+        setUsers((prev) => {
+          if (prev.some((u) => u.id === data.user.id)) {
+            return prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u));
+          }
+          return [data.user, ...prev];
+        });
+        setOverview((prev) =>
+          prev
+            ? {
+                ...prev,
+                totalUsers: prev.totalUsers + 1,
+                pendingCount: data.user.status === 'pending' ? prev.pendingCount + 1 : prev.pendingCount,
+                approvedCount: data.user.status === 'approved' ? prev.approvedCount + 1 : prev.approvedCount,
+              }
+            : null
+        );
+      };
+
+      const handleUserUpdated = (data: { user: User }) => {
+        if (!data?.user) return;
+        setUsers((prev) =>
+          prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u))
+        );
       };
 
       socket.on('admin_user_location_updated', handleLocationUpdate);
       socket.on('admin_user_status_changed', handleStatusUpdate);
+      socket.on('admin_new_user_registered', handleNewUserRegistered);
+      socket.on('admin_user_updated', handleUserUpdated);
 
       return () => {
         socket.emit('admin_leave_map_monitoring');
         socket.off('admin_user_location_updated', handleLocationUpdate);
         socket.off('admin_user_status_changed', handleStatusUpdate);
+        socket.off('admin_new_user_registered', handleNewUserRegistered);
+        socket.off('admin_user_updated', handleUserUpdated);
       };
     }
   }, [isOpen, socket]);
@@ -446,24 +515,44 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
   if (!isOpen) return null;
 
-  const filteredUsers = users.filter((u) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      u.name.toLowerCase().includes(q) ||
-      u.phone.toLowerCase().includes(q) ||
-      (u.businessName && u.businessName.toLowerCase().includes(q))
-    );
-  });
+  const userCounts = useMemo(() => {
+    let pending = 0, approved = 0, rejected = 0;
+    for (const u of users) {
+      if (u.status === 'pending') pending++;
+      else if (u.status === 'approved') approved++;
+      else if (u.status === 'rejected') rejected++;
+    }
+    return {
+      all: users.length,
+      pending,
+      approved,
+      rejected,
+    };
+  }, [users]);
 
-  const filteredChats = chats.filter((c) => {
-    if (!searchQuery.trim()) return true;
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      if (userFilter !== 'all' && u.status !== userFilter) return false;
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        u.name.toLowerCase().includes(q) ||
+        u.phone.toLowerCase().includes(q) ||
+        (u.businessName && u.businessName.toLowerCase().includes(q))
+      );
+    });
+  }, [users, userFilter, searchQuery]);
+
+  const filteredChats = useMemo(() => {
+    if (!searchQuery.trim()) return chats;
     const q = searchQuery.toLowerCase();
-    if (c.name && c.name.toLowerCase().includes(q)) return true;
-    return c.members?.some((m: any) =>
-      m.user?.name?.toLowerCase().includes(q) || m.user?.phone?.includes(q)
-    );
-  });
+    return chats.filter((c) => {
+      if (c.name && c.name.toLowerCase().includes(q)) return true;
+      return c.members?.some((m: any) =>
+        m.user?.name?.toLowerCase().includes(q) || m.user?.phone?.includes(q)
+      );
+    });
+  }, [chats, searchQuery]);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
@@ -572,20 +661,42 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
               </div>
 
               {/* Status filter tabs */}
-              <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-                {(['all', 'pending', 'approved', 'rejected'] as const).map((filter) => (
-                  <button
-                    key={filter}
-                    onClick={() => setUserFilter(filter)}
-                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
-                      userFilter === filter
-                        ? 'bg-[#00a884] text-white font-semibold'
-                        : 'bg-[#202c33] text-[#8696a0] hover:text-white'
-                    }`}
-                  >
-                    {filter}
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                {(['all', 'pending', 'approved', 'rejected'] as const).map((filter) => {
+                  const count = userCounts[filter];
+                  return (
+                    <button
+                      key={filter}
+                      onClick={() => setUserFilter(filter)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium capitalize transition-all flex items-center gap-1.5 ${
+                        userFilter === filter
+                          ? 'bg-[#00a884] text-white font-semibold shadow-sm'
+                          : 'bg-[#202c33] text-[#8696a0] hover:text-white'
+                      }`}
+                    >
+                      <span>{filter}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                          userFilter === filter
+                            ? 'bg-black/20 text-white'
+                            : filter === 'pending' && count > 0
+                            ? 'bg-amber-500/20 text-amber-400'
+                            : 'bg-[#111b21] text-[#8696a0]'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+
+                <button
+                  onClick={() => Promise.all([fetchOverview(), fetchUsers()])}
+                  title="Refresh users list"
+                  className="p-1.5 ml-1 text-[#8696a0] hover:text-white bg-[#202c33] hover:bg-[#374248] rounded-lg transition-colors flex items-center justify-center"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-[#00a884]' : ''}`} />
+                </button>
               </div>
             </div>
 

@@ -9,6 +9,7 @@ import {
   broadcastChatCleared,
   broadcastChatDeleted,
   broadcastUserUpdated,
+  broadcastNewUserRegistered,
   saveAndBroadcastMessage,
 } from '../sockets/socketHandler.js';
 
@@ -221,6 +222,7 @@ apiRouter.post('/auth/register', (req, res) => {
     }
 
     store.saveToFile();
+    broadcastNewUserRegistered(existingUser);
     return res.status(201).json({
       success: true,
       user: existingUser,
@@ -252,6 +254,7 @@ apiRouter.post('/auth/register', (req, res) => {
   store.users.set(newUser.id, newUser);
   store.userContacts.set(newUser.id, new Set());
   store.saveToFile();
+  broadcastNewUserRegistered(newUser);
   res.status(201).json({
     success: true,
     user: newUser,
@@ -924,7 +927,7 @@ apiRouter.get('/admin/users', verifyAdmin, (req, res) => {
       id: u.id,
       phone: u.phone,
       name: u.name,
-      avatar: u.avatar,
+      avatar: u.avatar && !u.avatar.startsWith('data:') ? u.avatar : (u.avatar ? `/api/users/${u.id}/avatar` : ''),
       role: u.role || 'user',
       status: u.status || 'approved',
       isBusiness: u.isBusiness,
@@ -958,7 +961,7 @@ apiRouter.get('/admin/online-locations', verifyAdmin, (req, res) => {
         id: u.id,
         phone: u.phone,
         name: u.name,
-        avatar: u.avatar,
+        avatar: u.avatar && !u.avatar.startsWith('data:') ? u.avatar : (u.avatar ? `/api/users/${u.id}/avatar` : ''),
         role: u.role || 'user',
         isOnline: Boolean(u.isOnline),
         lastSeen: u.lastSeen,
@@ -1026,14 +1029,19 @@ apiRouter.delete('/admin/users/:id', verifyAdmin, (req, res) => {
 
 // 7. Admin Chat Monitoring: List ALL chats across the app
 apiRouter.get('/admin/chats', verifyAdmin, (req, res) => {
+  // Precompute message counts in a single O(M) pass
+  const messageCounts = new Map<string, number>();
+  for (const m of store.messages.values()) {
+    messageCounts.set(m.chatId, (messageCounts.get(m.chatId) || 0) + 1);
+  }
+
   const chats = Array.from(store.chats.values())
     .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
     .map((chat) => {
       const enriched = getEnrichedChat(chat.id);
-      const totalMessages = Array.from(store.messages.values()).filter((m) => m.chatId === chat.id).length;
       return {
         ...(enriched || chat),
-        totalMessages,
+        totalMessages: messageCounts.get(chat.id) || 0,
       };
     });
 
@@ -1048,9 +1056,12 @@ apiRouter.get('/admin/chats/:id/messages', verifyAdmin, (req, res) => {
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
     .map((m) => {
       const sender = store.users.get(m.senderId);
+      const senderAvatar = sender?.avatar && !sender.avatar.startsWith('data:')
+        ? sender.avatar
+        : (sender?.avatar ? `/api/users/${sender.id}/avatar` : '');
       return {
         ...m,
-        sender: sender ? { id: sender.id, name: sender.name, phone: sender.phone, avatar: sender.avatar } : undefined,
+        sender: sender ? { id: sender.id, name: sender.name, phone: sender.phone, avatar: senderAvatar } : undefined,
         wasDeletedForUsers: Boolean(m.deletedForUserIds && m.deletedForUserIds.length > 0),
         wasDeletedForEveryone: Boolean(m.isDeletedForEveryone),
         deletedForUserIds: m.deletedForUserIds || [],
