@@ -13,7 +13,10 @@ COPY postcss.config.js ./
 COPY index.html ./
 COPY public/ ./public/
 
-RUN npm install --no-audit
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm install --no-audit
 
 COPY src/ ./src/
 

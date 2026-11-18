@@ -8,7 +8,10 @@ WORKDIR /app
 # Install dependencies
 COPY package*.json ./
 COPY tsconfig.json ./
-RUN npm install --no-audit
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm install --no-audit
 
 # Copy source code and Prisma schema
 COPY src/ ./src/
@@ -30,7 +33,10 @@ ENV PORT=5000
 
 # Install production dependencies only
 COPY package*.json ./
-RUN npm install --omit=dev --no-audit
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm install --omit=dev --no-audit
 
 # Copy compiled files and prisma schema from builder
 COPY --from=builder /app/dist ./dist
