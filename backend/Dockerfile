@@ -10,7 +10,8 @@ ENV NODE_OPTIONS="--dns-result-order=ipv4first"
 # Install dependencies
 COPY package*.json ./
 COPY tsconfig.json ./
-RUN npm config set fetch-retries 5 && \
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm install --no-audit --ignore-scripts

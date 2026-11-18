@@ -15,7 +15,8 @@ COPY postcss.config.js ./
 COPY index.html ./
 COPY public/ ./public/
 
-RUN npm config set fetch-retries 5 && \
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm install --no-audit --ignore-scripts
