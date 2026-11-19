@@ -215,16 +215,10 @@ async function sendToFcmToken(token: string, payload: {
 
     const message: any = {
       token,
-      notification: {
-        title: (payload.title || '').substring(0, 150),
-        body: (payload.body || '').substring(0, 300),
-        ...(mediaImage ? { imageUrl: mediaImage } : {}),
-      },
       data: stringifiedData,
       android: {
         priority: 'high',
         ttl: 60 * 1000,
-        notification: androidNotification,
       },
       apns: {
         payload: {
