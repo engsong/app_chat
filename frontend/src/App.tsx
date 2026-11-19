@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { io, Socket } from 'socket.io-client';
 import { Lock, Phone, PhoneOff, Video } from 'lucide-react';
 import { Sidebar } from './components/chat/Sidebar.js';
@@ -1299,16 +1300,16 @@ export const App: React.FC = () => {
       )}
 
       {/* 2.5 In-App Floating Heads-up Incoming Call Notification Banner */}
-      {webrtc.incomingCall && !webrtc.callActive && (
-        <div className="fixed top-3 left-3 right-3 sm:left-auto sm:right-6 sm:w-[420px] z-[999999] bg-[#1f2c34]/95 border border-[#00a884]/60 rounded-2xl shadow-2xl p-3.5 flex items-center justify-between gap-3 text-white backdrop-blur-xl animate-fade-in ring-2 ring-[#00a884]/30">
+      {webrtc.incomingCall && !webrtc.callActive && typeof document !== 'undefined' && createPortal(
+        <div className="fixed top-3 left-3 right-3 sm:left-auto sm:right-6 sm:w-[420px] z-[1000000] bg-[#1f2c34]/98 border-2 border-[#00a884] rounded-2xl shadow-2xl p-4 flex items-center justify-between gap-3 text-white backdrop-blur-2xl animate-fade-in ring-4 ring-[#00a884]/40">
           <div className="flex items-center gap-3 min-w-0">
             <div className="relative flex-shrink-0">
               <img
                 src={getAvatarUrl(webrtc.incomingCall.callerAvatar)}
                 alt={webrtc.incomingCall.callerName}
-                className="w-12 h-12 rounded-full object-cover ring-2 ring-[#00a884]"
+                className="w-13 h-13 rounded-full object-cover ring-2 ring-[#00a884]"
               />
-              <div className="absolute -bottom-1 -right-1 p-1 bg-[#00a884] rounded-full text-white shadow-md">
+              <div className="absolute -bottom-1 -right-1 p-1.5 bg-[#00a884] rounded-full text-white shadow-md">
                 {webrtc.incomingCall.isVideo ? <Video className="w-3.5 h-3.5" /> : <Phone className="w-3.5 h-3.5" />}
               </div>
             </div>
@@ -1320,7 +1321,7 @@ export const App: React.FC = () => {
                 </p>
               </div>
               <h4 className="font-bold text-base text-white truncate drop-shadow">{webrtc.incomingCall.callerName}</h4>
-              <p className="text-xs text-gray-300">Ringing...</p>
+              <p className="text-xs text-emerald-400 font-medium">Ringing...</p>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -1339,7 +1340,8 @@ export const App: React.FC = () => {
               {webrtc.incomingCall.isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />}
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* 3. 1-on-1 Call Modal (WebRTC) */}

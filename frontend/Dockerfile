@@ -24,9 +24,12 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
-    # SPA fallback to index.html
+    # SPA fallback to index.html - no-cache so mobile WebView and PWA immediately fetch latest bundle
     location / {
         try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
     }
 }
 EOF

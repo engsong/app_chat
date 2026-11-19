@@ -580,6 +580,17 @@ function setupSocketHandlers(io) {
                     io.to(`user_${data.userToCall}`).emit('call_rejected', rejectPayload);
                     userSocketMap.get(data.from)?.forEach((sId) => io.to(sId).emit('call_rejected', rejectPayload));
                     userSocketMap.get(data.userToCall)?.forEach((sId) => io.to(sId).emit('call_rejected', rejectPayload));
+                    // Cancel ringtone & incoming call notifications on receiver's phone
+                    (0, pushService_js_1.sendPushToUser)(data.userToCall, {
+                        title: 'Call Ended',
+                        body: 'Missed call',
+                        tag: `call-status-${callId}`,
+                        data: {
+                            url: 'https://chat.on-excapp.app',
+                            type: 'call_ended',
+                            callId,
+                        },
+                    });
                     if (targetChatId) {
                         const chat = store_js_1.store.chats.get(targetChatId);
                         if (chat) {
@@ -641,12 +652,12 @@ function setupSocketHandlers(io) {
             const callerAvatarUrl = (data.callerAvatar && !data.callerAvatar.startsWith('data:'))
                 ? data.callerAvatar
                 : `https://chat.on-excapp.app/api/users/${data.from}/avatar`;
-            // Send Push notification for incoming call (wakes screen & shows WhatsApp full-screen UI)
+            // 1. Send Call Push (triggers handleIncomingCallPush -> IncomingCallForegroundService plays ringtone)
             (0, pushService_js_1.sendPushToUser)(data.userToCall, {
                 title: data.isVideo ? '📹 Incoming Video Call' : '📞 Incoming Voice Call',
                 body: `${data.callerName} is calling you... Tap to answer.`,
                 icon: callerAvatarUrl,
-                tag: 'incoming-call',
+                tag: `incoming-call-${callId}`,
                 requireInteraction: true,
                 data: {
                     url: 'https://chat.on-excapp.app',
@@ -657,6 +668,29 @@ function setupSocketHandlers(io) {
                     isVideo: String(!!data.isVideo),
                     chatId: targetChatId || '',
                     from: data.from,
+                },
+            });
+            // 2. Send Heads-Up Alert Push (triggers handleChatMessagePush -> IMMEDIATELY pops down on top of screen on Infinix & Vivo with avatar, name & sound, exactly like message notification!)
+            (0, pushService_js_1.sendPushToUser)(data.userToCall, {
+                title: `📞 ${data.callerName}`,
+                body: `${data.isVideo ? '📹 Incoming Video' : '📞 Incoming Voice'}... Tap to answer`,
+                icon: callerAvatarUrl,
+                tag: `call-alert-${callId}`,
+                requireInteraction: true,
+                data: {
+                    url: 'https://chat.on-excapp.app',
+                    type: 'incoming_alert',
+                    chatId: targetChatId || '',
+                    senderId: data.from,
+                    senderName: `📞 ${data.callerName}`,
+                    senderAvatar: callerAvatarUrl,
+                    chatName: `📞 ${data.callerName}`,
+                    callId,
+                    from: data.from,
+                    callerName: data.callerName,
+                    callerAvatar: callerAvatarUrl,
+                    isVideo: String(!!data.isVideo),
+                    isIncomingCall: 'true',
                 },
             });
         });
@@ -744,6 +778,18 @@ function setupSocketHandlers(io) {
                         io.to(sId).emit('call_rejected', payload);
                     });
                 }
+                // Immediately dismiss ringtone on both caller and receiver phones
+                [session.callerId, session.receiverId].forEach((uId) => {
+                    (0, pushService_js_1.sendPushToUser)(uId, {
+                        title: 'Call Ended',
+                        body: 'Call was declined',
+                        tag: `call-status-${session.callId}`,
+                        data: {
+                            type: 'call_ended',
+                            callId: session.callId,
+                        },
+                    });
+                });
             }
         });
         socket.on('end_call', (data) => {
@@ -958,6 +1004,28 @@ function setupSocketHandlers(io) {
                                 chatId: groupId,
                                 isGroup: 'true',
                                 from: user.id,
+                            },
+                        });
+                        // Secondary heads-up popup notification for group call (drops down at top of screen on Infinix & Vivo)
+                        (0, pushService_js_1.sendPushToUser)(mId, {
+                            title: `📞 ${chat.name || 'Group'} (${user.name})`,
+                            body: `${user.name} is calling... Tap to join`,
+                            icon: callerAvatarUrl,
+                            tag: `group-alert-${groupId}`,
+                            requireInteraction: true,
+                            data: {
+                                url: 'https://chat.on-excapp.app',
+                                type: 'incoming_alert',
+                                chatId: groupId,
+                                senderId: user.id,
+                                senderName: `${user.name} (${chat.name || 'Group'})`,
+                                senderAvatar: callerAvatarUrl,
+                                chatName: chat.name || 'Group Call',
+                                isGroup: 'true',
+                                callId,
+                                from: user.id,
+                                isVideo: String(!!isVideo),
+                                isIncomingCall: 'true',
                             },
                         });
                     });
