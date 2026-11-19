@@ -154,6 +154,18 @@ async function sendToFcmToken(token: string, payload: {
       androidNotification.tag = payload.tag;
     }
 
+    const rawIcon = payload.icon || stringifiedData.senderAvatar;
+    let safeImageUrl: string | undefined;
+    if (rawIcon && typeof rawIcon === 'string' && rawIcon.startsWith('http')) {
+      safeImageUrl = rawIcon;
+    } else if (rawIcon && typeof rawIcon === 'string' && rawIcon.startsWith('/')) {
+      safeImageUrl = `https://chat.on-excapp.app${rawIcon}`;
+    }
+
+    if (safeImageUrl) {
+      androidNotification.imageUrl = safeImageUrl;
+    }
+
     if (!isSilent) {
       androidNotification.sound = 'default';
     }
@@ -167,6 +179,10 @@ async function sendToFcmToken(token: string, payload: {
       contentAvailable: true,
     };
 
+    if (safeImageUrl) {
+      apnsAps['mutable-content'] = 1;
+    }
+
     if (!isSilent) {
       apnsAps.sound = 'default';
     }
@@ -176,6 +192,7 @@ async function sendToFcmToken(token: string, payload: {
       notification: {
         title: (payload.title || '').substring(0, 150),
         body: (payload.body || '').substring(0, 300),
+        ...(safeImageUrl ? { imageUrl: safeImageUrl } : {}),
       },
       data: stringifiedData,
       android: {

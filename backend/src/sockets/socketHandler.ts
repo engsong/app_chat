@@ -646,15 +646,27 @@ export function setupSocketHandlers(io: Server) {
           userSocketMap.get(data.from)?.forEach((sId) => io.to(sId).emit('call_rejected', rejectPayload));
           userSocketMap.get(data.userToCall)?.forEach((sId) => io.to(sId).emit('call_rejected', rejectPayload));
 
-          // Cancel ringtone & incoming call notifications on receiver's phone with NO sound
+          // Cancel ringtone & incoming call notifications on receiver's phone with caller avatar & name
+          const callerUser = store.users.get(data.from);
+          const callerAvatar = (callerUser?.avatar && !callerUser.avatar.startsWith('data:'))
+            ? callerUser.avatar
+            : (callerUser?.avatar ? `https://chat.on-excapp.app/api/users/${data.from}/avatar` : `https://chat.on-excapp.app/logo.png`);
+          const callerName = callerUser?.name || data.callerName || 'IChat User';
+
           sendPushToUser(data.userToCall, {
-            title: 'Call Ended',
-            body: 'Missed call',
+            title: `📞 ${callerName}`,
+            body: data.isVideo ? '📹 Missed video call' : '📞 Missed voice call',
+            icon: callerAvatar,
             tag: `call-${callId}`,
             silent: true,
             data: {
               url: 'https://chat.on-excapp.app',
               type: 'call_ended',
+              chatId: targetChatId || '',
+              senderId: data.from,
+              senderName: callerName,
+              senderAvatar: callerAvatar,
+              chatName: callerName,
               callId,
               silent: 'true',
             },
@@ -843,16 +855,28 @@ export function setupSocketHandlers(io: Server) {
           });
         }
 
-        // Immediately dismiss ringtone on both caller and receiver phones with NO sound
+        // Immediately dismiss ringtone with decliner profile image & name
+        const declinerUser = store.users.get(senderId);
+        const declinerAvatar = (declinerUser?.avatar && !declinerUser.avatar.startsWith('data:'))
+          ? declinerUser.avatar
+          : (declinerUser?.avatar ? `https://chat.on-excapp.app/api/users/${senderId}/avatar` : `https://chat.on-excapp.app/logo.png`);
+        const declinerName = declinerUser?.name || 'IChat User';
+
         [session.callerId, session.receiverId].forEach((uId) => {
           sendPushToUser(uId, {
-            title: 'Call Ended',
-            body: 'Call was declined',
+            title: `📞 ${declinerName}`,
+            body: '❌ Call was declined',
+            icon: declinerAvatar,
             tag: `call-${session.callId}`,
             silent: true,
             data: {
               url: 'https://chat.on-excapp.app',
               type: 'call_ended',
+              chatId: session.chatId || '',
+              senderId,
+              senderName: declinerName,
+              senderAvatar: declinerAvatar,
+              chatName: declinerName,
               callId: session.callId,
               silent: 'true',
             },
@@ -935,15 +959,29 @@ export function setupSocketHandlers(io: Server) {
         });
       }
 
-      // Dismiss incoming call notification on receiver device with NO sound
+      // Dismiss incoming call notification on receiver device with sender profile image & name
+      const senderUser = store.users.get(senderId);
+      const senderAvatar = (senderUser?.avatar && !senderUser.avatar.startsWith('data:'))
+        ? senderUser.avatar
+        : (senderUser?.avatar ? `https://chat.on-excapp.app/api/users/${senderId}/avatar` : `https://chat.on-excapp.app/logo.png`);
+      const senderName = senderUser?.name || 'IChat User';
+      const wasConnected = session?.connectedAt;
+      const endBody = wasConnected ? '📞 Call ended' : '❌ Call was cancelled';
+
       sendPushToUser(data.to, {
-        title: 'Call Ended',
-        body: 'Call was cancelled',
+        title: `📞 ${senderName}`,
+        body: endBody,
+        icon: senderAvatar,
         tag: `call-${session?.callId || ''}`,
         silent: true,
         data: {
           url: 'https://chat.on-excapp.app',
           type: 'call_ended',
+          chatId: session?.chatId || '',
+          senderId,
+          senderName,
+          senderAvatar,
+          chatName: senderName,
           callId: session?.callId || '',
           silent: 'true',
         },
@@ -1255,14 +1293,26 @@ export function setupSocketHandlers(io: Server) {
             userSocketMap.get(otherId)?.forEach((sId) => io.to(sId).emit('call_ended'));
 
             if (!session.connectedAt) {
+              const callerUser = store.users.get(session.callerId);
+              const callerAvatar = (callerUser?.avatar && !callerUser.avatar.startsWith('data:'))
+                ? callerUser.avatar
+                : (callerUser?.avatar ? `https://chat.on-excapp.app/api/users/${session.callerId}/avatar` : `https://chat.on-excapp.app/logo.png`);
+              const callerName = callerUser?.name || 'IChat User';
+
               sendPushToUser(otherId, {
-                title: 'Call Ended',
-                body: 'Call was cancelled',
+                title: `📞 ${callerName}`,
+                body: '❌ Call was cancelled',
+                icon: callerAvatar,
                 tag: `call-${session.callId}`,
                 silent: true,
                 data: {
                   url: 'https://chat.on-excapp.app',
                   type: 'call_ended',
+                  chatId: session.chatId || '',
+                  senderId: session.callerId,
+                  senderName: callerName,
+                  senderAvatar: callerAvatar,
+                  chatName: callerName,
                   callId: session.callId,
                   silent: 'true',
                 },
