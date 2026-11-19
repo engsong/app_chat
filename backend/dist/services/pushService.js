@@ -101,11 +101,15 @@ async function sendToFcmToken(token, payload) {
                 stringifiedData[k] = val;
             });
         }
-        const isCall = payload.data?.type === 'call' || payload.title?.toLowerCase().includes('call');
+        const isSilent = payload.silent === true || payload.data?.silent === 'true' || payload.data?.type === 'call_ended';
+        const isCall = (payload.data?.type === 'call' || payload.title?.toLowerCase().includes('call')) && !isSilent;
         const channelId = isCall ? 'ichat_call_channel_v12' : 'ichat_message_channel_v12';
         stringifiedData.title = (payload.title || '').substring(0, 150);
         stringifiedData.body = (payload.body || '').substring(0, 300);
         stringifiedData.channelId = channelId;
+        if (isSilent) {
+            stringifiedData.silent = 'true';
+        }
         if (!stringifiedData.type) {
             stringifiedData.type = isCall ? 'call' : 'chat';
         }
@@ -121,6 +125,29 @@ async function sendToFcmToken(token, payload) {
                 }
             }
         }
+        const androidNotification = {
+            channelId,
+            priority: isCall ? 'max' : 'high',
+            visibility: 'public',
+            defaultSound: !isSilent,
+            defaultVibrateTimings: !isSilent,
+            icon: 'ic_stat_ichat',
+            color: isSilent ? '#ea0038' : '#25D366',
+        };
+        if (!isSilent) {
+            androidNotification.sound = 'default';
+        }
+        const apnsAps = {
+            alert: {
+                title: payload.title,
+                body: payload.body,
+            },
+            badge: 1,
+            contentAvailable: true,
+        };
+        if (!isSilent) {
+            apnsAps.sound = 'default';
+        }
         const message = {
             token,
             notification: {
@@ -131,33 +158,16 @@ async function sendToFcmToken(token, payload) {
             android: {
                 priority: 'high',
                 ttl: 60 * 1000,
-                notification: {
-                    channelId,
-                    sound: 'default',
-                    priority: 'max',
-                    visibility: 'public',
-                    defaultSound: true,
-                    defaultVibrateTimings: true,
-                    icon: 'ic_stat_ichat',
-                    color: '#25D366',
-                },
+                notification: androidNotification,
             },
             apns: {
                 payload: {
-                    aps: {
-                        alert: {
-                            title: payload.title,
-                            body: payload.body,
-                        },
-                        sound: 'default',
-                        badge: 1,
-                        contentAvailable: true,
-                    },
+                    aps: apnsAps,
                 },
             },
         };
         const response = await (0, messaging_1.getMessaging)().send(message);
-        console.log(`[FCM] High-priority native push sent successfully via Firebase Admin, messageId: ${response}`);
+        console.log(`[FCM] High-priority native push sent successfully via Firebase Admin (silent=${isSilent}), messageId: ${response}`);
         return true;
     }
     catch (err) {
@@ -207,6 +217,7 @@ async function sendPushToUser(userId, payload) {
         await Promise.allSettled(Array.from(fcmTokens).map((tok) => sendToFcmToken(tok, {
             title: payload.title,
             body: payload.body,
+            silent: payload.silent,
             data: payload.data,
         })));
     }
