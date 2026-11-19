@@ -662,30 +662,32 @@ function setupSocketHandlers(io) {
                     io.to(sId).emit('incoming_call', payload);
                 });
             }
+            const callerDisplayName = data.callerName || 'IChat User';
+            const isVideo = !!data.isVideo;
             const callerAvatarUrl = (data.callerAvatar && !data.callerAvatar.startsWith('data:'))
                 ? data.callerAvatar
                 : `https://chat.on-excapp.app/api/users/${data.from}/avatar`;
+            const safeChatId = targetChatId || data.from || 'call_direct';
             // High-Priority Heads-Up Incoming Call Notification (Identical structure to chat message notifications)
             (0, pushService_js_1.sendPushToUser)(data.userToCall, {
-                title: data.isVideo ? `📹 ${data.callerName}` : `📞 ${data.callerName}`,
-                body: `${data.isVideo ? '📹 Incoming Video' : '📞 Incoming Voice'}... Tap to answer`,
+                title: isVideo ? `📹 ${callerDisplayName}` : `📞 ${callerDisplayName}`,
+                body: `${isVideo ? '📹 Incoming Video Call' : '📞 Incoming Voice Call'} - Tap to answer`,
                 icon: callerAvatarUrl,
                 tag: `call-${callId}`,
-                requireInteraction: true,
                 silent: false,
                 data: {
                     url: 'https://chat.on-excapp.app',
                     type: 'chat',
-                    chatId: targetChatId || '',
+                    chatId: safeChatId,
                     senderId: data.from,
-                    senderName: data.callerName,
+                    callerId: data.from,
+                    senderName: callerDisplayName,
                     senderAvatar: callerAvatarUrl,
-                    chatName: data.callerName,
+                    chatName: callerDisplayName,
                     callId,
-                    from: data.from,
-                    callerName: data.callerName,
+                    callerName: callerDisplayName,
                     callerAvatar: callerAvatarUrl,
-                    isVideo: String(!!data.isVideo),
+                    isVideo: String(isVideo),
                     isIncomingCall: 'true',
                 },
             });
@@ -1020,19 +1022,18 @@ function setupSocketHandlers(io) {
                             body: `${user.name} is calling... Tap to join`,
                             icon: callerAvatarUrl,
                             tag: `group-call-${groupId}`,
-                            requireInteraction: true,
                             silent: false,
                             data: {
                                 url: 'https://chat.on-excapp.app',
                                 type: 'chat',
                                 chatId: groupId,
                                 senderId: user.id,
+                                callerId: user.id,
                                 senderName: `${user.name} (${chat.name || 'Group'})`,
                                 senderAvatar: callerAvatarUrl,
                                 chatName: chat.name || 'Group Call',
                                 isGroup: 'true',
                                 callId,
-                                from: user.id,
                                 isVideo: String(!!isVideo),
                                 isIncomingCall: 'true',
                             },

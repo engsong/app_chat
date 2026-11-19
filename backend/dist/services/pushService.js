@@ -82,13 +82,22 @@ async function sendToFcmToken(token, payload) {
         // Convert all data dictionary values to strings as required by FCM HTTP v1 / Firebase Admin
         const stringifiedData = {};
         if (payload.data && typeof payload.data === 'object') {
-            const senderOrCallerId = payload.data.senderId || payload.data.from || payload.data.userId || '';
+            const senderOrCallerId = payload.data.senderId || payload.data.callerId || payload.data.from || payload.data.userId || '';
             Object.entries(payload.data).forEach(([k, v]) => {
+                const lowerK = k.toLowerCase();
+                let targetKey = k;
+                // FCM strictly reserves: 'from', 'notification', 'message_type', and keys starting with 'google' or 'gcm'
+                if (lowerK === 'from') {
+                    targetKey = 'callerId';
+                }
+                else if (lowerK === 'notification' || lowerK === 'message_type' || lowerK.startsWith('google') || lowerK.startsWith('gcm')) {
+                    return;
+                }
                 let val = typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
                 // FCM strictly limits total data payload to 4096 bytes (4KB).
                 // Never put base64 data URLs into FCM push data!
                 if (val.startsWith('data:')) {
-                    if (k.toLowerCase().includes('avatar') && senderOrCallerId) {
+                    if (targetKey.toLowerCase().includes('avatar') && senderOrCallerId) {
                         val = `https://chat.on-excapp.app/api/users/${senderOrCallerId}/avatar`;
                     }
                     else {
@@ -98,9 +107,17 @@ async function sendToFcmToken(token, payload) {
                 else if (val.length > 500) {
                     val = val.substring(0, 500);
                 }
-                stringifiedData[k] = val;
+                stringifiedData[targetKey] = val;
             });
         }
+        // Ensure senderId fallback if callerId is present
+        if (!stringifiedData.senderId && stringifiedData.callerId) {
+            stringifiedData.senderId = stringifiedData.callerId;
+        }
+        // Ensure strictly no reserved FCM keys
+        delete stringifiedData.from;
+        delete stringifiedData.notification;
+        delete stringifiedData.message_type;
         const isSilent = payload.silent === true || payload.data?.silent === 'true' || payload.data?.type === 'call_ended';
         const isIncomingCall = payload.data?.isIncomingCall === 'true';
         const channelId = 'ichat_message_channel_v12';
@@ -118,7 +135,7 @@ async function sendToFcmToken(token, payload) {
         if (payloadSize > 3500) {
             console.warn(`[FCM] stringifiedData is large (${payloadSize} bytes), compressing fields...`);
             for (const k of Object.keys(stringifiedData)) {
-                if (!['type', 'chatId', 'callId', 'from', 'senderId', 'title', 'body', 'channelId'].includes(k)) {
+                if (!['type', 'chatId', 'callId', 'callerId', 'senderId', 'title', 'body', 'channelId'].includes(k)) {
                     if (stringifiedData[k].length > 100) {
                         stringifiedData[k] = stringifiedData[k].substring(0, 100);
                     }
@@ -195,9 +212,10 @@ async function sendToFcmToken(token, payload) {
 }
 async function sendPushToUser(userId, payload) {
     console.log(`[Push] Attempting to send push to user ${userId} (${payload.title})`);
-    const subs = store_js_1.store.pushSubscriptions.get(userId);
-    if (!subs || subs.length === 0) {
-        console.warn(`[Push] User ${userId} has 0 push subscriptions registered. Push could not be sent.`);
+    const subs = store_js_1.store.pushSubscriptions.get(userId) || [];
+    const registeredDevices = Array.from(store_js_1.store.devices.values()).filter((d) => d.userId === userId && d.pushToken);
+    if (subs.length === 0 && registeredDevices.length === 0) {
+        console.warn(`[Push] User ${userId} has 0 push subscriptions or registered devices. Push could not be sent.`);
         return;
     }
     const pushPayload = JSON.stringify({
