@@ -706,8 +706,6 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     }
   }, [mapUsers, mapFilter, mapSearch, activeTab]);
 
-  if (!isOpen) return null;
-
   const userCounts = useMemo(() => {
     let pending = 0, approved = 0, rejected = 0;
     const list = Array.isArray(users) ? users : [];
@@ -751,6 +749,8 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
       );
     });
   }, [chats, searchQuery]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-[#111b21] sm:bg-black/80 sm:backdrop-blur-sm flex items-center justify-center sm:p-4 animate-fade-in">

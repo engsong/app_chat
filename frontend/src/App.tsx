@@ -1413,7 +1413,7 @@ export const App: React.FC = () => {
       />
 
       {/* 11. Super Admin Dashboard Modal (User Approvals & Chat Monitoring) */}
-      {currentUser && isSuperAdmin(currentUser) && (
+      {currentUser && isSuperAdmin(currentUser) && showAdminDashboard && (
         <ErrorBoundary
           fallbackTitle="Admin Console"
           onReset={() => setShowAdminDashboard(false)}
