@@ -107,7 +107,7 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
     }
 
     const isSilent = payload.silent === true || payload.data?.silent === 'true' || payload.data?.type === 'call_ended';
-    const isCall = (payload.data?.type === 'call' || payload.title?.toLowerCase().includes('call')) && !isSilent;
+    const isCall = (payload.data?.type === 'call' || payload.data?.isIncomingCall === 'true' || payload.title?.toLowerCase().includes('call')) && !isSilent;
     const channelId = isCall ? 'ichat_call_channel_v12' : 'ichat_message_channel_v12';
 
     stringifiedData.title = (payload.title || '').substring(0, 150);
@@ -142,6 +142,10 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
       icon: 'ic_stat_ichat',
       color: isSilent ? '#ea0038' : '#25D366',
     };
+
+    if (isCall) {
+      androidNotification.clickAction = 'app.onexcapp.ichat.INCOMING_CALL';
+    }
 
     if (!isSilent) {
       androidNotification.sound = 'default';

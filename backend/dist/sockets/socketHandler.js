@@ -654,17 +654,17 @@ function setupSocketHandlers(io) {
             const callerAvatarUrl = (data.callerAvatar && !data.callerAvatar.startsWith('data:'))
                 ? data.callerAvatar
                 : `https://chat.on-excapp.app/api/users/${data.from}/avatar`;
-            // High-Priority Heads-Up Incoming Call Notification (Pops down at top of screen on Vivo & Infinix with ringtone/sound!)
+            // High-Priority Heads-Up Incoming Call Notification with Ringtone (Pops down at top of screen on Vivo & Infinix on lock screen and home screen)
             (0, pushService_js_1.sendPushToUser)(data.userToCall, {
-                title: data.isVideo ? `📹 ${data.callerName}` : `📞 ${data.callerName}`,
-                body: `${data.callerName} is calling... Tap to answer`,
+                title: data.isVideo ? `📹 Incoming Video Call: ${data.callerName}` : `📞 Incoming Voice Call: ${data.callerName}`,
+                body: `${data.callerName} is calling you... Tap to answer`,
                 icon: callerAvatarUrl,
                 tag: `call-${callId}`,
                 requireInteraction: true,
                 silent: false,
                 data: {
                     url: 'https://chat.on-excapp.app',
-                    type: 'incoming_alert',
+                    type: 'call',
                     chatId: targetChatId || '',
                     senderId: data.from,
                     senderName: data.callerName,
