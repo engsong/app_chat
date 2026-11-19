@@ -13,6 +13,7 @@ import { LabelsModal } from './components/business/LabelsModal.js';
 import { StatusModal } from './components/status/StatusModal.js';
 import { NewChatModal } from './components/chat/NewChatModal.js';
 import { AdminDashboardModal } from './components/admin/AdminDashboardModal.js';
+import { ErrorBoundary } from './components/common/ErrorBoundary.js';
 import { AuthPage } from './components/auth/AuthPage.js';
 import { WallpaperModal } from './components/chat/WallpaperModal.js';
 import { useWebRTC } from './hooks/useWebRTC.js';
@@ -1413,18 +1414,23 @@ export const App: React.FC = () => {
 
       {/* 11. Super Admin Dashboard Modal (User Approvals & Chat Monitoring) */}
       {currentUser && isSuperAdmin(currentUser) && (
-        <AdminDashboardModal
-          isOpen={showAdminDashboard}
-          onClose={() => {
-            setShowAdminDashboard(false);
-            fetch('/api/admin/overview', { headers: { 'x-admin-id': currentUser.id } })
-              .then((r) => r.json())
-              .then((d) => setPendingUsersCount(d.pendingCount || 0))
-              .catch(() => {});
-          }}
-          currentUser={currentUser}
-          socket={socket}
-        />
+        <ErrorBoundary
+          fallbackTitle="Admin Console"
+          onReset={() => setShowAdminDashboard(false)}
+        >
+          <AdminDashboardModal
+            isOpen={showAdminDashboard}
+            onClose={() => {
+              setShowAdminDashboard(false);
+              fetch('/api/admin/overview', { headers: { 'x-admin-id': currentUser.id } })
+                .then((r) => r.json())
+                .then((d) => setPendingUsersCount(d.pendingCount || 0))
+                .catch(() => {});
+            }}
+            currentUser={currentUser}
+            socket={socket}
+          />
+        </ErrorBoundary>
       )}
 
       {/* 12. Call History Modal */}

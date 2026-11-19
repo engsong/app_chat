@@ -29,6 +29,48 @@ import 'leaflet/dist/leaflet.css';
 import { User, Chat, Message } from '../../types/index.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
 
+// Safe Leaflet marker icons in Vite/bundler environments
+try {
+  delete (L.Icon.Default.prototype as any)._getIconUrl;
+  L.Icon.Default.mergeOptions({
+    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  });
+} catch (_) {}
+
+const formatSafeDate = (rawDate: any): string => {
+  if (!rawDate) return 'Recently';
+  try {
+    const d = new Date(rawDate);
+    if (isNaN(d.getTime())) return 'Recently';
+    return d.toLocaleDateString();
+  } catch {
+    return 'Recently';
+  }
+};
+
+const formatSafeDateTime = (rawDate: any): string => {
+  if (!rawDate) return '';
+  try {
+    const d = new Date(rawDate);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString();
+  } catch {
+    return '';
+  }
+};
+
+const parseMetadata = (raw: any): any => {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
 interface AdminDashboardModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -79,11 +121,15 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const [userFilter, setUserFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 1. Instant Cache Initialization (0ms perception from localStorage)
+  // 1. Instant Cache Initialization with strict array/object checks
   const [overview, setOverview] = useState<OverviewData | null>(() => {
     try {
       const saved = localStorage.getItem(CACHE_KEY_OVERVIEW);
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      return parsed && typeof parsed === 'object' && !parsed.error && typeof parsed.totalUsers === 'number'
+        ? parsed
+        : null;
     } catch {
       return null;
     }
@@ -92,7 +138,9 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const [users, setUsers] = useState<User[]>(() => {
     try {
       const saved = localStorage.getItem(CACHE_KEY_USERS);
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
@@ -101,7 +149,9 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const [chats, setChats] = useState<any[]>(() => {
     try {
       const saved = localStorage.getItem(CACHE_KEY_CHATS);
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
@@ -116,7 +166,9 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const [mapUsers, setMapUsers] = useState<UserLocationData[]>(() => {
     try {
       const saved = localStorage.getItem(CACHE_KEY_MAP);
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
@@ -131,18 +183,23 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const markersMapRef = useRef<Map<string, L.Marker>>(new Map());
   const tileLayerRef = useRef<L.TileLayer | null>(null);
 
+  const adminId = currentUser?.id || '';
+
   // Fetch Overview with Cache Persistence
   const fetchOverview = async () => {
+    if (!adminId) return;
     try {
       const res = await fetch('/api/admin/overview', {
-        headers: { 'x-admin-id': currentUser.id },
+        headers: { 'x-admin-id': adminId },
       });
       if (res.ok) {
         const data = await res.json();
-        setOverview(data);
-        try {
-          localStorage.setItem(CACHE_KEY_OVERVIEW, JSON.stringify(data));
-        } catch (_) {}
+        if (data && typeof data === 'object' && !data.error) {
+          setOverview(data);
+          try {
+            localStorage.setItem(CACHE_KEY_OVERVIEW, JSON.stringify(data));
+          } catch (_) {}
+        }
       }
     } catch (e) {
       console.error('Error fetching admin overview:', e);
@@ -151,10 +208,11 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
   // Fetch Users with Cache Persistence
   const fetchUsers = async () => {
+    if (!adminId) return;
     try {
-      if (users.length === 0) setLoading(true);
+      if (!Array.isArray(users) || users.length === 0) setLoading(true);
       const res = await fetch('/api/admin/users?status=all', {
-        headers: { 'x-admin-id': currentUser.id },
+        headers: { 'x-admin-id': adminId },
       });
       if (res.ok) {
         const data = await res.json();
@@ -174,10 +232,11 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
   // Fetch Chats with Cache Persistence
   const fetchChats = async () => {
+    if (!adminId) return;
     try {
-      if (chats.length === 0) setLoading(true);
+      if (!Array.isArray(chats) || chats.length === 0) setLoading(true);
       const res = await fetch('/api/admin/chats', {
-        headers: { 'x-admin-id': currentUser.id },
+        headers: { 'x-admin-id': adminId },
       });
       if (res.ok) {
         const data = await res.json();
@@ -196,10 +255,11 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   };
 
   const fetchAuditMessages = async (chatId: string) => {
+    if (!adminId || !chatId) return;
     try {
       setLoading(true);
       const res = await fetch(`/api/admin/chats/${chatId}/messages`, {
-        headers: { 'x-admin-id': currentUser.id },
+        headers: { 'x-admin-id': adminId },
       });
       if (res.ok) {
         const data = await res.json();
@@ -213,10 +273,11 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   };
 
   const fetchOnlineLocations = async () => {
+    if (!adminId) return;
     try {
-      if (mapUsers.length === 0) setMapLoading(true);
+      if (!Array.isArray(mapUsers) || mapUsers.length === 0) setMapLoading(true);
       const res = await fetch('/api/admin/online-locations', {
-        headers: { 'x-admin-id': currentUser.id },
+        headers: { 'x-admin-id': adminId },
       });
       if (res.ok) {
         const data: UserLocationData[] = await res.json();
@@ -248,11 +309,11 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   }, [isOpen, activeTab]);
 
   const handleApprove = async (userId: string) => {
+    if (!adminId || !userId) return;
     try {
       setActionLoadingId(userId);
-      // Optimistic update
       setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, status: 'approved' } : u))
+        Array.isArray(prev) ? prev.map((u) => (u.id === userId ? { ...u, status: 'approved' } : u)) : []
       );
       setOverview((prev) =>
         prev
@@ -266,13 +327,13 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
       const res = await fetch(`/api/admin/users/${userId}/approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-id': currentUser.id },
+        headers: { 'Content-Type': 'application/json', 'x-admin-id': adminId },
       });
       if (res.ok) {
         const updated = await res.json();
         if (updated.user) {
           setUsers((prev) =>
-            prev.map((u) => (u.id === userId ? { ...u, ...updated.user } : u))
+            Array.isArray(prev) ? prev.map((u) => (u.id === userId ? { ...u, ...updated.user } : u)) : []
           );
         }
       }
@@ -284,11 +345,11 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   };
 
   const handleReject = async (userId: string) => {
+    if (!adminId || !userId) return;
     try {
       setActionLoadingId(userId);
-      // Optimistic update
       setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, status: 'rejected' } : u))
+        Array.isArray(prev) ? prev.map((u) => (u.id === userId ? { ...u, status: 'rejected' } : u)) : []
       );
       setOverview((prev) =>
         prev
@@ -302,13 +363,13 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
       const res = await fetch(`/api/admin/users/${userId}/reject`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-id': currentUser.id },
+        headers: { 'Content-Type': 'application/json', 'x-admin-id': adminId },
       });
       if (res.ok) {
         const updated = await res.json();
         if (updated.user) {
           setUsers((prev) =>
-            prev.map((u) => (u.id === userId ? { ...u, ...updated.user } : u))
+            Array.isArray(prev) ? prev.map((u) => (u.id === userId ? { ...u, ...updated.user } : u)) : []
           );
         }
       }
@@ -320,22 +381,23 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   };
 
   const handleToggleAdminRole = async (userId: string, currentRole: string) => {
+    if (!adminId || !userId) return;
     const nextRole = currentRole === 'admin' ? 'user' : 'admin';
     try {
       setActionLoadingId(userId);
       setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, role: nextRole } : u))
+        Array.isArray(prev) ? prev.map((u) => (u.id === userId ? { ...u, role: nextRole } : u)) : []
       );
       const res = await fetch(`/api/admin/users/${userId}/role`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-id': currentUser.id },
+        headers: { 'Content-Type': 'application/json', 'x-admin-id': adminId },
         body: JSON.stringify({ role: nextRole }),
       });
       if (res.ok) {
         const updated = await res.json();
         if (updated.user) {
           setUsers((prev) =>
-            prev.map((u) => (u.id === userId ? { ...u, ...updated.user } : u))
+            Array.isArray(prev) ? prev.map((u) => (u.id === userId ? { ...u, ...updated.user } : u)) : []
           );
         }
       }
@@ -347,16 +409,17 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   };
 
   const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!adminId || !userId) return;
     if (!window.confirm(`Are you sure you want to permanently delete user "${userName}"?`)) {
       return;
     }
     try {
       setActionLoadingId(userId);
-      setUsers((prev) => prev.filter((u) => u.id !== userId));
-      setMapUsers((prev) => prev.filter((u) => u.id !== userId));
+      setUsers((prev) => (Array.isArray(prev) ? prev.filter((u) => u.id !== userId) : []));
+      setMapUsers((prev) => (Array.isArray(prev) ? prev.filter((u) => u.id !== userId) : []));
       await fetch(`/api/admin/users/${userId}`, {
         method: 'DELETE',
-        headers: { 'x-admin-id': currentUser.id },
+        headers: { 'x-admin-id': adminId },
       });
     } catch (e) {
       console.error('Error deleting user:', e);
@@ -366,74 +429,91 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   };
 
   const updateTileLayer = (map: L.Map, style: 'dark' | 'street' | 'satellite') => {
-    if (tileLayerRef.current) {
-      tileLayerRef.current.remove();
-      tileLayerRef.current = null;
+    try {
+      if (tileLayerRef.current) {
+        tileLayerRef.current.remove();
+        tileLayerRef.current = null;
+      }
+
+      let url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+      let options: L.TileLayerOptions = { maxZoom: 19 };
+
+      if (style === 'dark') {
+        url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+        options.className = 'map-tiles-dark';
+      } else if (style === 'street') {
+        url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+      } else {
+        url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+      }
+
+      const layer = L.tileLayer(url, options).addTo(map);
+      tileLayerRef.current = layer;
+    } catch (err) {
+      console.warn('[AdminDashboard] updateTileLayer error:', err);
     }
-
-    let url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
-    let options: L.TileLayerOptions = { maxZoom: 19 };
-
-    if (style === 'dark') {
-      url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
-      options.className = 'map-tiles-dark';
-    } else if (style === 'street') {
-      url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
-    } else {
-      url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-    }
-
-    const layer = L.tileLayer(url, options).addTo(map);
-    tileLayerRef.current = layer;
   };
 
   // Real-time WebSocket Listeners for Instant Incremental Sync
   useEffect(() => {
     if (!isOpen || !socket) return;
 
-    socket.emit('admin_join_map_monitoring');
+    try {
+      socket.emit('admin_join_map_monitoring');
+    } catch (_) {}
 
     const handleLocationUpdate = (data: { userId: string; location: any; isOnline: boolean }) => {
+      if (!data?.userId) return;
       setMapUsers((prev) =>
-        prev.map((u) =>
-          u.id === data.userId
-            ? { ...u, location: data.location, isOnline: data.isOnline }
-            : u
-        )
+        Array.isArray(prev)
+          ? prev.map((u) =>
+              u.id === data.userId
+                ? { ...u, location: data.location, isOnline: data.isOnline }
+                : u
+            )
+          : []
       );
       setUsers((prev) =>
-        prev.map((u) =>
-          u.id === data.userId
-            ? { ...u, location: data.location, isOnline: data.isOnline }
-            : u
-        )
+        Array.isArray(prev)
+          ? prev.map((u) =>
+              u.id === data.userId
+                ? { ...u, location: data.location, isOnline: data.isOnline }
+                : u
+            )
+          : []
       );
     };
 
     const handleStatusUpdate = (data: { userId: string; isOnline: boolean; lastSeen: string }) => {
+      if (!data?.userId) return;
       setMapUsers((prev) =>
-        prev.map((u) =>
-          u.id === data.userId
-            ? { ...u, isOnline: data.isOnline, lastSeen: data.lastSeen }
-            : u
-        )
+        Array.isArray(prev)
+          ? prev.map((u) =>
+              u.id === data.userId
+                ? { ...u, isOnline: data.isOnline, lastSeen: data.lastSeen }
+                : u
+            )
+          : []
       );
       setUsers((prev) =>
-        prev.map((u) =>
-          u.id === data.userId
-            ? { ...u, isOnline: data.isOnline, lastSeen: data.lastSeen }
-            : u
-        )
+        Array.isArray(prev)
+          ? prev.map((u) =>
+              u.id === data.userId
+                ? { ...u, isOnline: data.isOnline, lastSeen: data.lastSeen }
+                : u
+            )
+          : []
       );
     };
 
     const handleNewUserRegistered = (data: { user: User }) => {
       if (!data?.user) return;
       setUsers((prev) => {
-        if (prev.some((u) => u.id === data.user.id)) {
-          return prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u));
+        const list = Array.isArray(prev) ? prev : [];
+        if (list.some((u) => u.id === data.user.id)) {
+          return list.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u));
         }
-        return [data.user, ...prev];
+        return [data.user, ...list];
       });
       setOverview((prev) =>
         prev
@@ -450,14 +530,14 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     const handleUserUpdated = (data: { user: any }) => {
       if (!data?.user) return;
       if (data.user.deleted) {
-        setUsers((prev) => prev.filter((u) => u.id !== data.user.id));
-        setMapUsers((prev) => prev.filter((u) => u.id !== data.user.id));
+        setUsers((prev) => (Array.isArray(prev) ? prev.filter((u) => u.id !== data.user.id) : []));
+        setMapUsers((prev) => (Array.isArray(prev) ? prev.filter((u) => u.id !== data.user.id) : []));
       } else {
         setUsers((prev) =>
-          prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u))
+          Array.isArray(prev) ? prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u)) : []
         );
         setMapUsers((prev) =>
-          prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u))
+          Array.isArray(prev) ? prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u)) : []
         );
       }
     };
@@ -468,7 +548,9 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     socket.on('admin_user_updated', handleUserUpdated);
 
     return () => {
-      socket.emit('admin_leave_map_monitoring');
+      try {
+        socket.emit('admin_leave_map_monitoring');
+      } catch (_) {}
       socket.off('admin_user_location_updated', handleLocationUpdate);
       socket.off('admin_user_status_changed', handleStatusUpdate);
       socket.off('admin_new_user_registered', handleNewUserRegistered);
@@ -476,14 +558,38 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     };
   }, [isOpen, socket]);
 
+  // Clean up Leaflet Map instance safely on modal close / unmount
+  useEffect(() => {
+    return () => {
+      if (mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.remove();
+        } catch (_) {}
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []);
+
   // Initialize Leaflet Map safely when activeTab === 'map'
   useEffect(() => {
     if (!isOpen || activeTab !== 'map') return;
 
     const timer = setTimeout(() => {
-      if (!mapContainerRef.current) return;
+      try {
+        if (!mapContainerRef.current) return;
 
-      if (!mapInstanceRef.current) {
+        // If map already exists, re-tile and invalidate size
+        if (mapInstanceRef.current) {
+          updateTileLayer(mapInstanceRef.current, mapStyle);
+          mapInstanceRef.current.invalidateSize();
+          return;
+        }
+
+        // Clear container ID if previously assigned
+        if ((mapContainerRef.current as any)._leaflet_id) {
+          (mapContainerRef.current as any)._leaflet_id = null;
+        }
+
         const defaultCenter: [number, number] = [17.9757, 102.6331];
         const map = L.map(mapContainerRef.current, {
           center: defaultCenter,
@@ -494,9 +600,8 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
         updateTileLayer(map, mapStyle);
         mapInstanceRef.current = map;
-      } else {
-        updateTileLayer(mapInstanceRef.current, mapStyle);
-        mapInstanceRef.current.invalidateSize();
+      } catch (err) {
+        console.error('[AdminDashboard] Leaflet map initialization error:', err);
       }
     }, 150);
 
@@ -506,85 +611,98 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   // Update Map Markers on Location updates
   useEffect(() => {
     if (activeTab !== 'map' || !mapInstanceRef.current) return;
-    const map = mapInstanceRef.current;
+    try {
+      const map = mapInstanceRef.current;
 
-    markersMapRef.current.forEach((m) => m.remove());
-    markersMapRef.current.clear();
+      markersMapRef.current.forEach((m) => {
+        try { m.remove(); } catch (_) {}
+      });
+      markersMapRef.current.clear();
 
-    const filtered = mapUsers.filter((u) => {
-      if (!u) return false;
-      if (mapFilter === 'online' && !u.isOnline) return false;
-      if (mapSearch) {
-        const q = mapSearch.toLowerCase();
-        return (u.name || '').toLowerCase().includes(q) || (u.phone || '').includes(q);
-      }
-      return true;
-    });
-
-    const bounds: L.LatLngTuple[] = [];
-
-    filtered.forEach((u) => {
-      const lat = u.location?.lat || 17.9757;
-      const lng = u.location?.lng || 102.6331;
-      bounds.push([lat, lng]);
-
-      const avatarSrc = getAvatarUrl(u.avatar);
-      const isOnline = u.isOnline;
-      const sourceBadge = u.location?.source === 'gps' ? 'GPS Exact' : 'IP Network';
-
-      const customHtml = `
-        <div style="position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
-          ${isOnline ? '<div style="position: absolute; width: 44px; height: 44px; border-radius: 9999px; background: rgba(0, 168, 132, 0.4); animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>' : ''}
-          <div style="position: relative; width: 36px; height: 36px; border-radius: 9999px; overflow: hidden; border: 3px solid ${isOnline ? '#00a884' : '#6b7280'}; box-shadow: 0 4px 14px rgba(0,0,0,0.6); background: #202c33;">
-            <img src="${avatarSrc}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'" />
-          </div>
-          <span style="position: absolute; bottom: 0px; right: 0px; width: 12px; height: 12px; border-radius: 9999px; border: 2px solid #111b21; background: ${isOnline ? '#00a884' : '#6b7280'};"></span>
-        </div>
-      `;
-
-      const icon = L.divIcon({
-        html: customHtml,
-        className: 'custom-admin-marker',
-        iconSize: [44, 44],
-        iconAnchor: [22, 22],
-        popupAnchor: [0, -22],
+      const list = Array.isArray(mapUsers) ? mapUsers : [];
+      const filtered = list.filter((u) => {
+        if (!u) return false;
+        if (mapFilter === 'online' && !u.isOnline) return false;
+        if (mapSearch) {
+          const q = mapSearch.toLowerCase();
+          return (u.name || '').toLowerCase().includes(q) || (u.phone || '').includes(q);
+        }
+        return true;
       });
 
-      const marker = L.marker([lat, lng], { icon }).addTo(map);
+      const bounds: L.LatLngTuple[] = [];
 
-      const popupHtml = `
-        <div style="color: #fff; font-family: system-ui, -apple-system, sans-serif; min-width: 210px; padding: 2px;">
-          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-            <img src="${avatarSrc}" style="width: 38px; height: 38px; border-radius: 9999px; object-fit: cover; border: 2px solid ${isOnline ? '#00a884' : '#6b7280'};" />
-            <div>
-              <div style="font-weight: 700; font-size: 13px; color: #fff;">${u.name || 'User'}</div>
-              <div style="font-size: 11px; color: #8696a0;">${u.phone || ''}</div>
+      filtered.forEach((u) => {
+        try {
+          const lat = Number(u.location?.lat) || 17.9757;
+          const lng = Number(u.location?.lng) || 102.6331;
+          bounds.push([lat, lng]);
+
+          const avatarSrc = getAvatarUrl(u.avatar);
+          const isOnline = Boolean(u.isOnline);
+          const sourceBadge = u.location?.source === 'gps' ? 'GPS Exact' : 'IP Network';
+
+          const customHtml = `
+            <div style="position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+              ${isOnline ? '<div style="position: absolute; width: 44px; height: 44px; border-radius: 9999px; background: rgba(0, 168, 132, 0.4); animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>' : ''}
+              <div style="position: relative; width: 36px; height: 36px; border-radius: 9999px; overflow: hidden; border: 3px solid ${isOnline ? '#00a884' : '#6b7280'}; box-shadow: 0 4px 14px rgba(0,0,0,0.6); background: #202c33;">
+                <img src="${avatarSrc}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'" />
+              </div>
+              <span style="position: absolute; bottom: 0px; right: 0px; width: 12px; height: 12px; border-radius: 9999px; border: 2px solid #111b21; background: ${isOnline ? '#00a884' : '#6b7280'};"></span>
             </div>
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 6px;">
-            <span style="width: 8px; height: 8px; border-radius: 9999px; background: ${isOnline ? '#00a884' : '#6b7280'}; display: inline-block;"></span>
-            <span style="color: ${isOnline ? '#00a884' : '#8696a0'}; font-weight: 600;">${isOnline ? 'Online Now' : 'Offline'}</span>
-            <span style="background: rgba(255,255,255,0.12); padding: 2px 6px; border-radius: 4px; font-size: 9px; margin-left: auto; color: #e9edef;">${sourceBadge}</span>
-          </div>
-          <div style="font-size: 11px; color: #e9edef; margin-bottom: 4px;">
-            📍 ${u.location?.city || 'Unknown'}, ${u.location?.country || ''}
-          </div>
-          <div style="font-size: 10px; color: #8696a0; margin-bottom: 6px;">
-            Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)}
-          </div>
-        </div>
-      `;
+          `;
 
-      marker.bindPopup(popupHtml, { className: 'custom-admin-popup' });
-      marker.on('click', () => {
-        setSelectedMapUser(u);
+          const icon = L.divIcon({
+            html: customHtml,
+            className: 'custom-admin-marker',
+            iconSize: [44, 44],
+            iconAnchor: [22, 22],
+            popupAnchor: [0, -22],
+          });
+
+          const marker = L.marker([lat, lng], { icon }).addTo(map);
+
+          const popupHtml = `
+            <div style="color: #fff; font-family: system-ui, -apple-system, sans-serif; min-width: 210px; padding: 2px;">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                <img src="${avatarSrc}" style="width: 38px; height: 38px; border-radius: 9999px; object-fit: cover; border: 2px solid ${isOnline ? '#00a884' : '#6b7280'};" />
+                <div>
+                  <div style="font-weight: 700; font-size: 13px; color: #fff;">${u.name || 'User'}</div>
+                  <div style="font-size: 11px; color: #8696a0;">${u.phone || ''}</div>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 6px;">
+                <span style="width: 8px; height: 8px; border-radius: 9999px; background: ${isOnline ? '#00a884' : '#6b7280'}; display: inline-block;"></span>
+                <span style="color: ${isOnline ? '#00a884' : '#8696a0'}; font-weight: 600;">${isOnline ? 'Online Now' : 'Offline'}</span>
+                <span style="background: rgba(255,255,255,0.12); padding: 2px 6px; border-radius: 4px; font-size: 9px; margin-left: auto; color: #e9edef;">${sourceBadge}</span>
+              </div>
+              <div style="font-size: 11px; color: #e9edef; margin-bottom: 4px;">
+                📍 ${u.location?.city || 'Unknown'}, ${u.location?.country || ''}
+              </div>
+              <div style="font-size: 10px; color: #8696a0; margin-bottom: 6px;">
+                Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)}
+              </div>
+            </div>
+          `;
+
+          marker.bindPopup(popupHtml, { className: 'custom-admin-popup' });
+          marker.on('click', () => {
+            setSelectedMapUser(u);
+          });
+
+          markersMapRef.current.set(u.id, marker);
+        } catch (markerErr) {
+          console.warn('[AdminDashboard] Marker rendering error:', markerErr);
+        }
       });
 
-      markersMapRef.current.set(u.id, marker);
-    });
-
-    if (bounds.length > 0 && !selectedMapUser) {
-      map.fitBounds(bounds, { maxZoom: 13, padding: [40, 40] });
+      if (bounds.length > 0 && !selectedMapUser) {
+        try {
+          map.fitBounds(bounds, { maxZoom: 13, padding: [40, 40] });
+        } catch (_) {}
+      }
+    } catch (err) {
+      console.error('[AdminDashboard] Markers effect error:', err);
     }
   }, [mapUsers, mapFilter, mapSearch, activeTab]);
 
@@ -592,16 +710,15 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
   const userCounts = useMemo(() => {
     let pending = 0, approved = 0, rejected = 0;
-    if (Array.isArray(users)) {
-      for (const u of users) {
-        if (!u) continue;
-        if (u.status === 'pending') pending++;
-        else if (u.status === 'approved') approved++;
-        else if (u.status === 'rejected') rejected++;
-      }
+    const list = Array.isArray(users) ? users : [];
+    for (const u of list) {
+      if (!u || typeof u !== 'object') continue;
+      if (u.status === 'pending') pending++;
+      else if (u.status === 'approved') approved++;
+      else if (u.status === 'rejected') rejected++;
     }
     return {
-      all: users.length,
+      all: list.length,
       pending,
       approved,
       rejected,
@@ -611,7 +728,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const filteredUsers = useMemo(() => {
     if (!Array.isArray(users)) return [];
     return users.filter((u) => {
-      if (!u) return false;
+      if (!u || typeof u !== 'object') return false;
       if (userFilter !== 'all' && u.status !== userFilter) return false;
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
@@ -627,9 +744,9 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     if (!searchQuery.trim()) return chats;
     const q = searchQuery.toLowerCase();
     return chats.filter((c) => {
-      if (!c) return false;
-      if (c.name && c.name.toLowerCase().includes(q)) return true;
-      return c.members?.some((m: any) =>
+      if (!c || typeof c !== 'object') return false;
+      if (c.name && String(c.name).toLowerCase().includes(q)) return true;
+      return Array.isArray(c.members) && c.members.some((m: any) =>
         (m?.user?.name || '').toLowerCase().includes(q) || (m?.user?.phone || '').includes(q)
       );
     });
@@ -866,7 +983,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                           <div className="text-xs text-[#8696a0] flex items-center gap-2 flex-wrap mt-0.5">
                             <span className="font-mono text-gray-300">📞 {u.phone}</span>
                             <span>•</span>
-                            <span>Registered: {new Date(u.createdAt || Date.now()).toLocaleDateString()}</span>
+                            <span>Registered: {formatSafeDate(u.createdAt)}</span>
                             {u.isBusiness && (
                               <span className="text-amber-400 font-medium">🏢 {u.businessName || 'Business'}</span>
                             )}
@@ -1104,7 +1221,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                               </span>
                             )}
                           </div>
-                          <span>{new Date(msg.createdAt).toLocaleString()}</span>
+                          <span>{formatSafeDateTime(msg.createdAt)}</span>
                         </div>
 
                         {/* Content based on type */}
@@ -1121,24 +1238,28 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                           </div>
                         )}
 
-                        {msg.type === 'location' && (
-                          <div className="p-2 bg-[#111b21] rounded-lg border border-[#2a3942] flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-xs text-white">
-                              <MapPin className="w-4 h-4 text-rose-500" />
-                              <span>{msg.content}</span>
+                        {msg.type === 'location' && (() => {
+                          const meta = parseMetadata(msg.metadata);
+                          const mapUrl = meta?.mapUrl || (meta?.lat && meta?.lng ? `https://maps.google.com?q=${meta.lat},${meta.lng}` : null);
+                          return (
+                            <div className="p-2 bg-[#111b21] rounded-lg border border-[#2a3942] flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-xs text-white">
+                                <MapPin className="w-4 h-4 text-rose-500" />
+                                <span>{msg.content}</span>
+                              </div>
+                              {mapUrl && (
+                                <a
+                                  href={mapUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="p-1 text-[#00a884] hover:text-white"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                </a>
+                              )}
                             </div>
-                            {msg.metadata && (
-                              <a
-                                href={JSON.parse(msg.metadata).mapUrl || `https://maps.google.com?q=${JSON.parse(msg.metadata).lat},${JSON.parse(msg.metadata).lng}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="p-1 text-[#00a884] hover:text-white"
-                              >
-                                <ExternalLink className="w-4 h-4" />
-                              </a>
-                            )}
-                          </div>
-                        )}
+                          );
+                        })()}
 
                         {msg.type === 'audio' && (
                           <div className="p-2 bg-[#111b21] rounded-lg border border-[#2a3942] flex items-center gap-2">
