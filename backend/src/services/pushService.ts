@@ -173,16 +173,13 @@ async function sendToFcmToken(token: string, payload: {
       androidNotification.tag = payload.tag;
     }
 
-    const rawIcon = payload.icon || stringifiedData.senderAvatar;
-    let safeImageUrl: string | undefined;
-    if (rawIcon && typeof rawIcon === 'string' && rawIcon.startsWith('http')) {
-      safeImageUrl = rawIcon;
-    } else if (rawIcon && typeof rawIcon === 'string' && rawIcon.startsWith('/')) {
-      safeImageUrl = `https://chat.on-excapp.app${rawIcon}`;
-    }
+    // Only pass imageUrl for actual rich image media messages, never for user avatar or logo.png
+    const mediaImage = (payload.data?.type === 'image' && payload.data?.mediaUrl && typeof payload.data.mediaUrl === 'string' && payload.data.mediaUrl.startsWith('http'))
+      ? payload.data.mediaUrl
+      : undefined;
 
-    if (safeImageUrl) {
-      androidNotification.imageUrl = safeImageUrl;
+    if (mediaImage) {
+      androidNotification.imageUrl = mediaImage;
     }
 
     if (!isSilent) {
@@ -198,7 +195,7 @@ async function sendToFcmToken(token: string, payload: {
       contentAvailable: true,
     };
 
-    if (safeImageUrl) {
+    if (mediaImage) {
       apnsAps['mutable-content'] = 1;
     }
 
@@ -211,7 +208,7 @@ async function sendToFcmToken(token: string, payload: {
       notification: {
         title: (payload.title || '').substring(0, 150),
         body: (payload.body || '').substring(0, 300),
-        ...(safeImageUrl ? { imageUrl: safeImageUrl } : {}),
+        ...(mediaImage ? { imageUrl: mediaImage } : {}),
       },
       data: stringifiedData,
       android: {

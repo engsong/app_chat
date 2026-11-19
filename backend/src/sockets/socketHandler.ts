@@ -13,11 +13,11 @@ export function getUserDisplayName(user?: any, fallback?: string): string {
 }
 
 export function getUserAvatarUrl(user?: any, fallbackAvatar?: string, fallbackUserId?: string): string {
-  if (user?.avatar && !user.avatar.startsWith('data:')) return user.avatar;
-  if (fallbackAvatar && !fallbackAvatar.startsWith('data:')) return fallbackAvatar;
+  if (user?.avatar && !user.avatar.startsWith('data:') && !user.avatar.includes('logo.png')) return user.avatar;
+  if (fallbackAvatar && !fallbackAvatar.startsWith('data:') && !fallbackAvatar.includes('logo.png')) return fallbackAvatar;
   const uid = user?.id || fallbackUserId;
-  if (uid) return `https://chat.on-excapp.app/api/users/${uid}/avatar`;
-  return 'https://chat.on-excapp.app/logo.png';
+  if (user?.avatar && uid) return `https://chat.on-excapp.app/api/users/${uid}/avatar`;
+  return '';
 }
 
 function getClientIp(socket: Socket): string {

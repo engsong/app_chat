@@ -135,7 +135,7 @@ apiRouter.get('/users/:id/avatar', (req, res) => {
   const user = store.users.get(req.params.id);
   const avatar = user?.avatar;
   if (!avatar) {
-    return res.redirect(302, '/logo.png');
+    return res.status(404).send('No avatar');
   }
 
   if (avatar.startsWith('data:image/')) {
@@ -153,11 +153,11 @@ apiRouter.get('/users/:id/avatar', (req, res) => {
     return res.redirect(302, avatar);
   }
 
-  if (avatar.startsWith('/')) {
+  if (avatar.startsWith('/') && !avatar.includes('logo.png')) {
     return res.redirect(302, avatar);
   }
 
-  return res.redirect(302, '/logo.png');
+  return res.status(404).send('No avatar');
 });
 
 // 1. User Registration (Create New Account)

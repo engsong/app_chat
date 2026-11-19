@@ -29,14 +29,14 @@ function getUserDisplayName(user, fallback) {
     return 'IChat User';
 }
 function getUserAvatarUrl(user, fallbackAvatar, fallbackUserId) {
-    if (user?.avatar && !user.avatar.startsWith('data:'))
+    if (user?.avatar && !user.avatar.startsWith('data:') && !user.avatar.includes('logo.png'))
         return user.avatar;
-    if (fallbackAvatar && !fallbackAvatar.startsWith('data:'))
+    if (fallbackAvatar && !fallbackAvatar.startsWith('data:') && !fallbackAvatar.includes('logo.png'))
         return fallbackAvatar;
     const uid = user?.id || fallbackUserId;
-    if (uid)
+    if (user?.avatar && uid)
         return `https://chat.on-excapp.app/api/users/${uid}/avatar`;
-    return 'https://chat.on-excapp.app/logo.png';
+    return '';
 }
 function getClientIp(socket) {
     const forwarded = socket.handshake.headers['x-forwarded-for'];

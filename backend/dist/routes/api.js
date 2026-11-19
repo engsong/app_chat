@@ -112,7 +112,7 @@ exports.apiRouter.get('/users/:id/avatar', (req, res) => {
     const user = store_js_1.store.users.get(req.params.id);
     const avatar = user?.avatar;
     if (!avatar) {
-        return res.redirect(302, '/logo.png');
+        return res.status(404).send('No avatar');
     }
     if (avatar.startsWith('data:image/')) {
         const matches = avatar.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
@@ -127,10 +127,10 @@ exports.apiRouter.get('/users/:id/avatar', (req, res) => {
     if (avatar.startsWith('http://') || avatar.startsWith('https://')) {
         return res.redirect(302, avatar);
     }
-    if (avatar.startsWith('/')) {
+    if (avatar.startsWith('/') && !avatar.includes('logo.png')) {
         return res.redirect(302, avatar);
     }
-    return res.redirect(302, '/logo.png');
+    return res.status(404).send('No avatar');
 });
 // 1. User Registration (Create New Account)
 exports.apiRouter.post('/auth/register', (req, res) => {
