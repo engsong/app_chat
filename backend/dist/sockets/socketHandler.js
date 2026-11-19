@@ -3,6 +3,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getUserDisplayName = getUserDisplayName;
+exports.getUserAvatarUrl = getUserAvatarUrl;
 exports.getEnrichedChat = getEnrichedChat;
 exports.broadcastNewChat = broadcastNewChat;
 exports.broadcastMessageDeleted = broadcastMessageDeleted;
@@ -17,6 +19,25 @@ const store_js_1 = require("../store.js");
 const uuid_1 = require("uuid");
 const pushService_js_1 = require("../services/pushService.js");
 const geoip_lite_1 = __importDefault(require("geoip-lite"));
+function getUserDisplayName(user, fallback) {
+    if (user?.name && user.name.trim())
+        return user.name.trim();
+    if (user?.phone)
+        return (0, store_js_1.formatStandardLaoPhone)(user.phone);
+    if (fallback && fallback.trim())
+        return fallback.trim();
+    return 'IChat User';
+}
+function getUserAvatarUrl(user, fallbackAvatar, fallbackUserId) {
+    if (user?.avatar && !user.avatar.startsWith('data:'))
+        return user.avatar;
+    if (fallbackAvatar && !fallbackAvatar.startsWith('data:'))
+        return fallbackAvatar;
+    const uid = user?.id || fallbackUserId;
+    if (uid)
+        return `https://chat.on-excapp.app/api/users/${uid}/avatar`;
+    return 'https://chat.on-excapp.app/logo.png';
+}
 function getClientIp(socket) {
     const forwarded = socket.handshake.headers['x-forwarded-for'];
     if (typeof forwarded === 'string') {
@@ -244,7 +265,7 @@ function saveAndBroadcastMessage(data) {
             }
             if (memberId !== senderId) {
                 const sender = store_js_1.store.users.get(senderId);
-                const senderName = sender?.name || 'IChat User';
+                const senderName = getUserDisplayName(sender, 'IChat User');
                 const title = chat.isGroup ? `${chat.name} (${senderName})` : senderName;
                 let body = content || 'New message';
                 if (type === 'image')
@@ -259,17 +280,17 @@ function saveAndBroadcastMessage(data) {
                     body = '📍 Location shared';
                 else if (type === 'call')
                     body = content || '📞 Call';
-                const avatarUrl = (sender?.avatar && !sender.avatar.startsWith('data:'))
-                    ? sender.avatar
-                    : `https://chat.on-excapp.app/api/users/${senderId}/avatar`;
+                const avatarUrl = getUserAvatarUrl(sender, undefined, senderId);
                 (0, pushService_js_1.sendPushToUser)(memberId, {
                     title,
                     body,
                     icon: avatarUrl,
                     tag: `chat-${chat.id}`,
                     data: {
+                        type: 'chat',
                         chatId: chat.id,
                         senderId,
+                        callerId: senderId,
                         senderName,
                         senderAvatar: avatarUrl,
                         chatName: chat.name || '',
@@ -582,24 +603,24 @@ function setupSocketHandlers(io) {
                     userSocketMap.get(data.userToCall)?.forEach((sId) => io.to(sId).emit('call_rejected', rejectPayload));
                     // Cancel ringtone & incoming call notifications on receiver's phone with caller avatar & name
                     const callerUser = store_js_1.store.users.get(data.from);
-                    const callerAvatar = (callerUser?.avatar && !callerUser.avatar.startsWith('data:'))
-                        ? callerUser.avatar
-                        : (callerUser?.avatar ? `https://chat.on-excapp.app/api/users/${data.from}/avatar` : `https://chat.on-excapp.app/logo.png`);
-                    const callerName = callerUser?.name || data.callerName || 'IChat User';
+                    const callerDisplayName = getUserDisplayName(callerUser, data.callerName);
+                    const callerAvatar = getUserAvatarUrl(callerUser, undefined, data.from);
+                    const safeChatId = targetChatId || data.from || 'call_direct';
                     (0, pushService_js_1.sendPushToUser)(data.userToCall, {
-                        title: `📞 ${callerName}`,
+                        title: callerDisplayName,
                         body: data.isVideo ? '📹 Missed video call' : '📞 Missed voice call',
                         icon: callerAvatar,
-                        tag: `call-${callId}`,
+                        tag: `chat-${safeChatId}`,
                         silent: true,
                         data: {
                             url: 'https://chat.on-excapp.app',
-                            type: 'call_ended',
-                            chatId: targetChatId || '',
+                            type: 'chat',
+                            chatId: safeChatId,
                             senderId: data.from,
-                            senderName: callerName,
+                            callerId: data.from,
+                            senderName: callerDisplayName,
                             senderAvatar: callerAvatar,
-                            chatName: callerName,
+                            chatName: callerDisplayName,
                             callId,
                             silent: 'true',
                         },
@@ -662,18 +683,17 @@ function setupSocketHandlers(io) {
                     io.to(sId).emit('incoming_call', payload);
                 });
             }
-            const callerDisplayName = data.callerName || 'IChat User';
+            const callerUser = store_js_1.store.users.get(data.from);
+            const callerDisplayName = getUserDisplayName(callerUser, data.callerName);
             const isVideo = !!data.isVideo;
-            const callerAvatarUrl = (data.callerAvatar && !data.callerAvatar.startsWith('data:'))
-                ? data.callerAvatar
-                : `https://chat.on-excapp.app/api/users/${data.from}/avatar`;
+            const callerAvatarUrl = getUserAvatarUrl(callerUser, data.callerAvatar, data.from);
             const safeChatId = targetChatId || data.from || 'call_direct';
             // High-Priority Heads-Up Incoming Call Notification (Identical structure to chat message notifications)
             (0, pushService_js_1.sendPushToUser)(data.userToCall, {
-                title: isVideo ? `📹 ${callerDisplayName}` : `📞 ${callerDisplayName}`,
-                body: `${isVideo ? '📹 Incoming Video Call' : '📞 Incoming Voice Call'} - Tap to answer`,
+                title: callerDisplayName,
+                body: isVideo ? '📹 Incoming Video Call... Tap to answer' : '📞 Incoming Voice Call... Tap to answer',
                 icon: callerAvatarUrl,
-                tag: `call-${callId}`,
+                tag: `chat-${safeChatId}`,
                 silent: false,
                 data: {
                     url: 'https://chat.on-excapp.app',
@@ -778,25 +798,25 @@ function setupSocketHandlers(io) {
                 }
                 // Immediately dismiss ringtone with decliner profile image & name
                 const declinerUser = store_js_1.store.users.get(senderId);
-                const declinerAvatar = (declinerUser?.avatar && !declinerUser.avatar.startsWith('data:'))
-                    ? declinerUser.avatar
-                    : (declinerUser?.avatar ? `https://chat.on-excapp.app/api/users/${senderId}/avatar` : `https://chat.on-excapp.app/logo.png`);
-                const declinerName = declinerUser?.name || 'IChat User';
+                const declinerDisplayName = getUserDisplayName(declinerUser, 'IChat User');
+                const declinerAvatar = getUserAvatarUrl(declinerUser, undefined, senderId);
+                const safeChatId = session.chatId || senderId || 'call_direct';
                 [session.callerId, session.receiverId].forEach((uId) => {
                     (0, pushService_js_1.sendPushToUser)(uId, {
-                        title: `📞 ${declinerName}`,
+                        title: declinerDisplayName,
                         body: '❌ Call was declined',
                         icon: declinerAvatar,
-                        tag: `call-${session.callId}`,
+                        tag: `chat-${safeChatId}`,
                         silent: true,
                         data: {
                             url: 'https://chat.on-excapp.app',
-                            type: 'call_ended',
-                            chatId: session.chatId || '',
+                            type: 'chat',
+                            chatId: safeChatId,
                             senderId,
-                            senderName: declinerName,
+                            callerId: senderId,
+                            senderName: declinerDisplayName,
                             senderAvatar: declinerAvatar,
-                            chatName: declinerName,
+                            chatName: declinerDisplayName,
                             callId: session.callId,
                             silent: 'true',
                         },
@@ -875,26 +895,26 @@ function setupSocketHandlers(io) {
             }
             // Dismiss incoming call notification on receiver device with sender profile image & name
             const senderUser = store_js_1.store.users.get(senderId);
-            const senderAvatar = (senderUser?.avatar && !senderUser.avatar.startsWith('data:'))
-                ? senderUser.avatar
-                : (senderUser?.avatar ? `https://chat.on-excapp.app/api/users/${senderId}/avatar` : `https://chat.on-excapp.app/logo.png`);
-            const senderName = senderUser?.name || 'IChat User';
+            const senderDisplayName = getUserDisplayName(senderUser, 'IChat User');
+            const senderAvatar = getUserAvatarUrl(senderUser, undefined, senderId);
             const wasConnected = session?.connectedAt;
             const endBody = wasConnected ? '📞 Call ended' : '❌ Call was cancelled';
+            const safeChatId = session?.chatId || senderId || 'call_direct';
             (0, pushService_js_1.sendPushToUser)(data.to, {
-                title: `📞 ${senderName}`,
+                title: senderDisplayName,
                 body: endBody,
                 icon: senderAvatar,
-                tag: `call-${session?.callId || ''}`,
+                tag: `chat-${safeChatId}`,
                 silent: true,
                 data: {
                     url: 'https://chat.on-excapp.app',
-                    type: 'call_ended',
-                    chatId: session?.chatId || '',
+                    type: 'chat',
+                    chatId: safeChatId,
                     senderId,
-                    senderName,
+                    callerId: senderId,
+                    senderName: senderDisplayName,
                     senderAvatar,
-                    chatName: senderName,
+                    chatName: senderDisplayName,
                     callId: session?.callId || '',
                     silent: 'true',
                 },
@@ -1018,10 +1038,10 @@ function setupSocketHandlers(io) {
                         ioInstance?.to(`user_${mId}`).emit('incoming_call', incomingPayload);
                         // High-Priority Heads-up incoming group call alert (drops down at top of screen on Infinix & Vivo with sound)
                         (0, pushService_js_1.sendPushToUser)(mId, {
-                            title: isVideo ? `📹 ${chat.name || 'Group'} (${user.name})` : `📞 ${chat.name || 'Group'} (${user.name})`,
+                            title: `${chat.name || 'Group'} (${user.name})`,
                             body: `${user.name} is calling... Tap to join`,
                             icon: callerAvatarUrl,
-                            tag: `group-call-${groupId}`,
+                            tag: `chat-${groupId}`,
                             silent: false,
                             data: {
                                 url: 'https://chat.on-excapp.app',
@@ -1163,24 +1183,24 @@ function setupSocketHandlers(io) {
                         userSocketMap.get(otherId)?.forEach((sId) => io.to(sId).emit('call_ended'));
                         if (!session.connectedAt) {
                             const callerUser = store_js_1.store.users.get(session.callerId);
-                            const callerAvatar = (callerUser?.avatar && !callerUser.avatar.startsWith('data:'))
-                                ? callerUser.avatar
-                                : (callerUser?.avatar ? `https://chat.on-excapp.app/api/users/${session.callerId}/avatar` : `https://chat.on-excapp.app/logo.png`);
-                            const callerName = callerUser?.name || 'IChat User';
+                            const callerDisplayName = getUserDisplayName(callerUser, 'IChat User');
+                            const callerAvatar = getUserAvatarUrl(callerUser, undefined, session.callerId);
+                            const safeChatId = session.chatId || session.callerId || 'call_direct';
                             (0, pushService_js_1.sendPushToUser)(otherId, {
-                                title: `📞 ${callerName}`,
+                                title: callerDisplayName,
                                 body: '❌ Call was cancelled',
                                 icon: callerAvatar,
-                                tag: `call-${session.callId}`,
+                                tag: `chat-${safeChatId}`,
                                 silent: true,
                                 data: {
                                     url: 'https://chat.on-excapp.app',
-                                    type: 'call_ended',
-                                    chatId: session.chatId || '',
+                                    type: 'chat',
+                                    chatId: safeChatId,
                                     senderId: session.callerId,
-                                    senderName: callerName,
+                                    callerId: session.callerId,
+                                    senderName: callerDisplayName,
                                     senderAvatar: callerAvatar,
-                                    chatName: callerName,
+                                    chatName: callerDisplayName,
                                     callId: session.callId,
                                     silent: 'true',
                                 },
