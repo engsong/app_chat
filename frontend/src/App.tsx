@@ -764,7 +764,12 @@ export const App: React.FC = () => {
       }
     };
 
-    const interval = setInterval(refreshData, 3000);
+    // Only poll as a background safety net when WebSocket is disconnected
+    const interval = setInterval(() => {
+      if (!socket || !socket.connected) {
+        refreshData();
+      }
+    }, 20000);
 
     const handleFocus = () => {
       if (socket && socket.connected && currentUser) {
@@ -774,15 +779,17 @@ export const App: React.FC = () => {
     };
 
     window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', () => {
+    const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         handleFocus();
       }
-    });
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [currentUser, activeChatId, socket]);
 

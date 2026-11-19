@@ -118,28 +118,80 @@ class InMemoryStore {
     }
   }
 
-  public saveToFile() {
+  private saveTimeout: NodeJS.Timeout | null = null;
+  private isSaving: boolean = false;
+  private savePending: boolean = false;
+
+  private serializeData(): string {
+    const data = {
+      users: Array.from(this.users.entries()),
+      chats: Array.from(this.chats.entries()),
+      messages: Array.from(this.messages.entries()),
+      products: Array.from(this.products.entries()),
+      quickReplies: Array.from(this.quickReplies.entries()),
+      labels: Array.from(this.labels.entries()),
+      chatLabels: Array.from(this.chatLabels.entries()).map(([k, set]) => [k, Array.from(set)]),
+      statuses: Array.from(this.statuses.entries()),
+      calls: Array.from(this.calls.entries()),
+      userContacts: Array.from(this.userContacts.entries()).map(([k, set]) => [k, Array.from(set)]),
+      pushSubscriptions: Array.from(this.pushSubscriptions.entries()),
+      devices: Array.from(this.devices.entries()),
+    };
+    return JSON.stringify(data);
+  }
+
+  public saveToFile(immediate = false) {
+    if (immediate) {
+      if (this.saveTimeout) {
+        clearTimeout(this.saveTimeout);
+        this.saveTimeout = null;
+      }
+      this.doSaveSync();
+      return;
+    }
+
+    if (!this.saveTimeout) {
+      this.saveTimeout = setTimeout(() => {
+        this.saveTimeout = null;
+        this.doSaveAsync();
+      }, 500); // 500ms debounce
+    }
+  }
+
+  private doSaveSync() {
     try {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-      const data = {
-        users: Array.from(this.users.entries()),
-        chats: Array.from(this.chats.entries()),
-        messages: Array.from(this.messages.entries()),
-        products: Array.from(this.products.entries()),
-        quickReplies: Array.from(this.quickReplies.entries()),
-        labels: Array.from(this.labels.entries()),
-        chatLabels: Array.from(this.chatLabels.entries()).map(([k, set]) => [k, Array.from(set)]),
-        statuses: Array.from(this.statuses.entries()),
-        calls: Array.from(this.calls.entries()),
-        userContacts: Array.from(this.userContacts.entries()).map(([k, set]) => [k, Array.from(set)]),
-        pushSubscriptions: Array.from(this.pushSubscriptions.entries()),
-        devices: Array.from(this.devices.entries()),
-      };
-      fs.writeFileSync(STORE_FILE, JSON.stringify(data), 'utf8');
+      const dataStr = this.serializeData();
+      fs.writeFileSync(STORE_FILE, dataStr, 'utf8');
     } catch (err) {
-      console.error('[Store] Failed to save store to file:', err);
+      console.error('[Store] Failed to save store to file synchronously:', err);
+    }
+  }
+
+  private async doSaveAsync() {
+    if (this.isSaving) {
+      this.savePending = true;
+      return;
+    }
+    this.isSaving = true;
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        await fs.promises.mkdir(DATA_DIR, { recursive: true });
+      }
+      const dataStr = this.serializeData();
+      const tmpFile = `${STORE_FILE}.tmp.${Date.now()}`;
+      await fs.promises.writeFile(tmpFile, dataStr, 'utf8');
+      await fs.promises.rename(tmpFile, STORE_FILE);
+    } catch (err) {
+      console.error('[Store] Failed to save store to file asynchronously:', err);
+    } finally {
+      this.isSaving = false;
+      if (this.savePending) {
+        this.savePending = false;
+        this.saveToFile();
+      }
     }
   }
 

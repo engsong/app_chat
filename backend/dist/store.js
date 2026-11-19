@@ -83,29 +83,78 @@ class InMemoryStore {
             this.saveToFile();
         }
     }
-    saveToFile() {
+    saveTimeout = null;
+    isSaving = false;
+    savePending = false;
+    serializeData() {
+        const data = {
+            users: Array.from(this.users.entries()),
+            chats: Array.from(this.chats.entries()),
+            messages: Array.from(this.messages.entries()),
+            products: Array.from(this.products.entries()),
+            quickReplies: Array.from(this.quickReplies.entries()),
+            labels: Array.from(this.labels.entries()),
+            chatLabels: Array.from(this.chatLabels.entries()).map(([k, set]) => [k, Array.from(set)]),
+            statuses: Array.from(this.statuses.entries()),
+            calls: Array.from(this.calls.entries()),
+            userContacts: Array.from(this.userContacts.entries()).map(([k, set]) => [k, Array.from(set)]),
+            pushSubscriptions: Array.from(this.pushSubscriptions.entries()),
+            devices: Array.from(this.devices.entries()),
+        };
+        return JSON.stringify(data);
+    }
+    saveToFile(immediate = false) {
+        if (immediate) {
+            if (this.saveTimeout) {
+                clearTimeout(this.saveTimeout);
+                this.saveTimeout = null;
+            }
+            this.doSaveSync();
+            return;
+        }
+        if (!this.saveTimeout) {
+            this.saveTimeout = setTimeout(() => {
+                this.saveTimeout = null;
+                this.doSaveAsync();
+            }, 500); // 500ms debounce
+        }
+    }
+    doSaveSync() {
         try {
             if (!fs_1.default.existsSync(DATA_DIR)) {
                 fs_1.default.mkdirSync(DATA_DIR, { recursive: true });
             }
-            const data = {
-                users: Array.from(this.users.entries()),
-                chats: Array.from(this.chats.entries()),
-                messages: Array.from(this.messages.entries()),
-                products: Array.from(this.products.entries()),
-                quickReplies: Array.from(this.quickReplies.entries()),
-                labels: Array.from(this.labels.entries()),
-                chatLabels: Array.from(this.chatLabels.entries()).map(([k, set]) => [k, Array.from(set)]),
-                statuses: Array.from(this.statuses.entries()),
-                calls: Array.from(this.calls.entries()),
-                userContacts: Array.from(this.userContacts.entries()).map(([k, set]) => [k, Array.from(set)]),
-                pushSubscriptions: Array.from(this.pushSubscriptions.entries()),
-                devices: Array.from(this.devices.entries()),
-            };
-            fs_1.default.writeFileSync(STORE_FILE, JSON.stringify(data), 'utf8');
+            const dataStr = this.serializeData();
+            fs_1.default.writeFileSync(STORE_FILE, dataStr, 'utf8');
         }
         catch (err) {
-            console.error('[Store] Failed to save store to file:', err);
+            console.error('[Store] Failed to save store to file synchronously:', err);
+        }
+    }
+    async doSaveAsync() {
+        if (this.isSaving) {
+            this.savePending = true;
+            return;
+        }
+        this.isSaving = true;
+        try {
+            if (!fs_1.default.existsSync(DATA_DIR)) {
+                await fs_1.default.promises.mkdir(DATA_DIR, { recursive: true });
+            }
+            const dataStr = this.serializeData();
+            const tmpFile = `${STORE_FILE}.tmp.${Date.now()}`;
+            await fs_1.default.promises.writeFile(tmpFile, dataStr, 'utf8');
+            await fs_1.default.promises.rename(tmpFile, STORE_FILE);
+        }
+        catch (err) {
+            console.error('[Store] Failed to save store to file asynchronously:', err);
+        }
+        finally {
+            this.isSaving = false;
+            if (this.savePending) {
+                this.savePending = false;
+                this.saveToFile();
+            }
         }
     }
     loadFromFile() {
