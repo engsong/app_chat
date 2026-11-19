@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { PhoneOff, Mic, MicOff, Video, VideoOff, Users, Volume2, VolumeX } from 'lucide-react';
 import { GroupParticipantInfo } from '../../hooks/useWebRTC.js';
 
@@ -185,8 +186,8 @@ export const GroupCallModal: React.FC<GroupCallModalProps> = ({
     }
   }, [localStreamRef.current, isVideoCall, isVideoDisabled]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#111b21] text-white">
+  const modalContent = (
+    <div className="fixed inset-0 z-[99999] flex flex-col bg-[#111b21] text-white">
       {/* Dedicated audio sinks for ALL active remote participants in the group call */}
       {Array.from(remoteStreams?.entries() || []).map(([uId, rStream]) => (
         <RemoteAudioSink key={uId} userId={uId} stream={rStream} />
@@ -295,4 +296,6 @@ export const GroupCallModal: React.FC<GroupCallModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

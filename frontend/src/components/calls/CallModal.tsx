@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Phone, PhoneOff, Video, Mic, MicOff, VideoOff, Monitor, Maximize2, Volume2, VolumeX } from 'lucide-react';
 import { IncomingCallInfo } from '../../hooks/useWebRTC.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
@@ -85,8 +86,8 @@ export const CallModal: React.FC<CallModalProps> = ({
 
   // 1. Incoming Call Screen (Full Screen WhatsApp Style)
   if (incomingCall && !callActive) {
-    return (
-      <div className="fixed inset-0 z-[100] flex flex-col justify-between bg-[#0b141a] text-white overflow-hidden select-none animate-fade-in">
+    const incomingModal = (
+      <div className="fixed inset-0 z-[99999] flex flex-col justify-between bg-[#0b141a] text-white overflow-hidden select-none animate-fade-in">
         {/* Background Caller Photo (Blurred Backdrop) */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <img
@@ -179,12 +180,13 @@ export const CallModal: React.FC<CallModalProps> = ({
         </div>
       </div>
     );
+    return typeof document !== 'undefined' ? createPortal(incomingModal, document.body) : incomingModal;
   }
 
   // 2. Outgoing Call Screen or Active 1-on-1 Call Screen
   if (isCalling || callActive) {
-    return (
-      <div className="fixed inset-0 z-50 flex flex-col bg-[#111b21] text-white">
+    const activeModal = (
+      <div className="fixed inset-0 z-[99999] flex flex-col bg-[#111b21] text-white">
         {/* Top Bar */}
         <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-b from-black/60 to-transparent z-20">
           <div className="flex items-center gap-3">
@@ -357,6 +359,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         </div>
       </div>
     );
+    return typeof document !== 'undefined' ? createPortal(activeModal, document.body) : activeModal;
   }
 
   return null;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Lock } from 'lucide-react';
+import { Lock, Phone, PhoneOff, Video } from 'lucide-react';
 import { Sidebar } from './components/chat/Sidebar.js';
 import { ChatArea } from './components/chat/ChatArea.js';
 import { CallModal } from './components/calls/CallModal.js';
@@ -202,6 +202,17 @@ export const App: React.FC = () => {
             webrtc.answerCall();
           }
         }
+      } else if (detail.isIncoming) {
+        // Native incoming call received or user tapped notification/activity
+        console.log('[NativeCallEvent] Showing incoming call UI for:', detail.callerName);
+        webrtc.triggerIncomingCall({
+          from: detail.from,
+          callerName: detail.callerName || 'IChat User',
+          callerAvatar: detail.callerAvatar,
+          isVideo: !!detail.isVideo,
+          chatId: detail.chatId,
+          isGroup: !!detail.isGroup,
+        });
       }
     };
 
@@ -1283,6 +1294,50 @@ export const App: React.FC = () => {
               <Lock className="w-3.5 h-3.5 text-[#00a884]" />
               <span>End-to-end encrypted WebRTC & Real-time Sockets</span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2.5 In-App Floating Heads-up Incoming Call Notification Banner */}
+      {webrtc.incomingCall && !webrtc.callActive && (
+        <div className="fixed top-3 left-3 right-3 sm:left-auto sm:right-6 sm:w-[420px] z-[999999] bg-[#1f2c34]/95 border border-[#00a884]/60 rounded-2xl shadow-2xl p-3.5 flex items-center justify-between gap-3 text-white backdrop-blur-xl animate-fade-in ring-2 ring-[#00a884]/30">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="relative flex-shrink-0">
+              <img
+                src={getAvatarUrl(webrtc.incomingCall.callerAvatar)}
+                alt={webrtc.incomingCall.callerName}
+                className="w-12 h-12 rounded-full object-cover ring-2 ring-[#00a884]"
+              />
+              <div className="absolute -bottom-1 -right-1 p-1 bg-[#00a884] rounded-full text-white shadow-md">
+                {webrtc.incomingCall.isVideo ? <Video className="w-3.5 h-3.5" /> : <Phone className="w-3.5 h-3.5" />}
+              </div>
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#00a884] animate-ping" />
+                <p className="text-[11px] font-bold text-[#00a884] uppercase tracking-wider">
+                  Incoming {webrtc.incomingCall.isVideo ? 'Video' : 'Voice'} Call
+                </p>
+              </div>
+              <h4 className="font-bold text-base text-white truncate drop-shadow">{webrtc.incomingCall.callerName}</h4>
+              <p className="text-xs text-gray-300">Ringing...</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={webrtc.rejectCall}
+              className="w-11 h-11 rounded-full bg-[#ea0038] hover:bg-[#c90030] active:scale-90 flex items-center justify-center text-white shadow-lg shadow-red-600/40 transition-transform"
+              title="Decline"
+            >
+              <PhoneOff className="w-5 h-5" />
+            </button>
+            <button
+              onClick={webrtc.answerCall}
+              className="w-11 h-11 rounded-full bg-[#25D366] hover:bg-[#20ba59] active:scale-90 flex items-center justify-center text-white shadow-lg shadow-emerald-500/40 animate-pulse transition-transform"
+              title="Answer"
+            >
+              {webrtc.incomingCall.isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />}
+            </button>
           </div>
         </div>
       )}

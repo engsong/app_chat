@@ -131,10 +131,24 @@ async function sendToFcmToken(token: string, payload: { title: string; body: str
 
     const message: any = {
       token,
+      notification: {
+        title: (payload.title || '').substring(0, 150),
+        body: (payload.body || '').substring(0, 300),
+      },
       data: stringifiedData,
       android: {
         priority: 'high',
         ttl: 60 * 1000,
+        notification: {
+          channelId,
+          sound: 'default',
+          priority: 'max',
+          visibility: 'public',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          icon: 'ic_stat_ichat',
+          color: '#25D366',
+        },
       },
       apns: {
         payload: {

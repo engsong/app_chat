@@ -772,6 +772,52 @@ export function useWebRTC(
     cleanupCall();
   };
 
+  // Programmatically or via socket trigger an incoming call (shows calling screen, plays ringtone, shows notification)
+  const triggerIncomingCall = useCallback((data: IncomingCallInfo) => {
+    console.log('[WebRTC] Incoming call from:', data.callerName);
+    setIncomingCall(data);
+
+    if ((window as any).__autoAcceptPendingCall) {
+      console.log('[WebRTC] Auto-accepting pending call accepted from native screen');
+      (window as any).__autoAcceptPendingCall = false;
+      setTimeout(() => {
+        answerCall();
+      }, 200);
+      return;
+    }
+
+    soundEffects.startIncomingRingtone();
+
+    // Show native system & browser notification for incoming call with answer/decline actions
+    showCallNotification({
+      callerName: data.callerName,
+      isVideo: data.isVideo,
+      callerAvatar: data.callerAvatar,
+      onAnswer: () => {
+        answerCall();
+      },
+      onDecline: () => {
+        rejectCall();
+      },
+    });
+
+    // 1-minute (60 seconds) auto-decline timeout for incoming call
+    if (incomingCallTimeoutRef.current) clearTimeout(incomingCallTimeoutRef.current);
+    incomingCallTimeoutRef.current = setTimeout(() => {
+      console.log('[WebRTC] Incoming call not answered within 1 minute, auto declining');
+      if (socket) {
+        if (data.isGroup && (data.groupId || data.chatId)) {
+          socket.emit('reject_group_call', { groupId: data.groupId || data.chatId });
+        } else if (data.from) {
+          socket.emit('reject_call', { to: data.from, reason: 'no_answer' });
+        }
+      }
+      soundEffects.stopRingtone();
+      closeCallNotification();
+      setIncomingCall(null);
+    }, 60000);
+  }, [socket]);
+
   // ==========================================
   // Socket Event Listeners
   // ==========================================
@@ -780,42 +826,7 @@ export function useWebRTC(
 
     // Incoming 1-on-1 Call
     const handleIncomingCall = (data: IncomingCallInfo) => {
-      console.log('[WebRTC] Incoming call from:', data.callerName);
-      setIncomingCall(data);
-
-      if ((window as any).__autoAcceptPendingCall) {
-        console.log('[WebRTC] Auto-accepting pending call accepted from native screen');
-        (window as any).__autoAcceptPendingCall = false;
-        setTimeout(() => {
-          answerCall();
-        }, 200);
-        return;
-      }
-
-      soundEffects.startIncomingRingtone();
-
-      // Show native system & browser notification for incoming call
-      showCallNotification({
-        callerName: data.callerName,
-        isVideo: data.isVideo,
-        callerAvatar: data.callerAvatar,
-      });
-
-      // 1-minute (60 seconds) auto-decline timeout for incoming call
-      if (incomingCallTimeoutRef.current) clearTimeout(incomingCallTimeoutRef.current);
-      incomingCallTimeoutRef.current = setTimeout(() => {
-        console.log('[WebRTC] Incoming call not answered within 1 minute, auto declining');
-        if (socket) {
-          if (data.isGroup && (data.groupId || data.chatId)) {
-            socket.emit('reject_group_call', { groupId: data.groupId || data.chatId });
-          } else if (data.from) {
-            socket.emit('reject_call', { to: data.from, reason: 'no_answer' });
-          }
-        }
-        soundEffects.stopRingtone();
-        closeCallNotification();
-        setIncomingCall(null);
-      }, 60000);
+      triggerIncomingCall(data);
     };
 
     // Call Accepted by remote user
@@ -1154,6 +1165,7 @@ export function useWebRTC(
     answerCall,
     rejectCall,
     endCall,
+    triggerIncomingCall,
     toggleMute,
     toggleSpeaker,
     toggleVideo,

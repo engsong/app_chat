@@ -264,9 +264,11 @@ export async function showMessageNotification(options: {
     } catch (_) {}
   }
 
-  const notificationOptions = {
+  const safeIcon = (options.icon && !options.icon.startsWith('data:')) ? options.icon : '/logo.png';
+
+  const notificationOptions: any = {
     body: options.body,
-    icon: options.icon || '/logo.png',
+    icon: safeIcon,
     badge: '/logo.png',
     tag: `chat-${options.chatId}`,
     renotify: true,
@@ -322,17 +324,26 @@ export async function showCallNotification(options: {
   // Continuous vibration for call
   if (navigator.vibrate) {
     try {
-      navigator.vibrate([400, 200, 400, 200, 400]);
+      navigator.vibrate([600, 300, 600, 300, 600]);
     } catch (_) {}
   }
 
-  const notificationOptions = {
+  const safeIcon = (options.callerAvatar && !options.callerAvatar.startsWith('data:'))
+    ? options.callerAvatar
+    : '/logo.png';
+
+  const notificationOptions: any = {
     body,
-    icon: options.callerAvatar || '/logo.png',
+    icon: safeIcon,
     badge: '/logo.png',
     tag: 'incoming-call',
     requireInteraction: true, // Keep notification active until user acts
     renotify: true,
+    vibrate: [600, 300, 600, 300, 600],
+    actions: [
+      { action: 'answer', title: '📞 Answer' },
+      { action: 'decline', title: '❌ Decline' },
+    ],
     data: {
       url: window.location.origin,
       type: 'call',
@@ -350,6 +361,7 @@ export async function showCallNotification(options: {
       activeCallNotification = notif;
       notif.onclick = () => {
         window.focus();
+        if (options.onAnswer) options.onAnswer();
         notif.close();
       };
     }

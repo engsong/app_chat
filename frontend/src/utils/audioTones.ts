@@ -46,6 +46,12 @@ class SoundEffects {
     const ctx = this.getAudioContext();
 
     const playChime = () => {
+      try {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate([600, 300, 600, 300, 600]);
+        }
+      } catch (_) {}
+
       const osc1 = ctx.createOscillator();
       const osc2 = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -82,6 +88,11 @@ class SoundEffects {
       clearInterval(this.ringInterval);
       this.ringInterval = null;
     }
+    try {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(0);
+      }
+    } catch (_) {}
   }
 
   // Beep when call connects
