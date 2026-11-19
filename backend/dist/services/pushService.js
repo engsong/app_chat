@@ -114,6 +114,15 @@ async function sendToFcmToken(token, payload) {
         if (!stringifiedData.senderId && stringifiedData.callerId) {
             stringifiedData.senderId = stringifiedData.callerId;
         }
+        const effectiveSenderId = stringifiedData.senderId || stringifiedData.callerId;
+        if (effectiveSenderId) {
+            if (!stringifiedData.senderAvatar || stringifiedData.senderAvatar.includes('logo.png')) {
+                stringifiedData.senderAvatar = `https://chat.on-excapp.app/api/users/${effectiveSenderId}/avatar`;
+            }
+            if (!stringifiedData.callerAvatar || stringifiedData.callerAvatar.includes('logo.png')) {
+                stringifiedData.callerAvatar = `https://chat.on-excapp.app/api/users/${effectiveSenderId}/avatar`;
+            }
+        }
         // Ensure strictly no reserved FCM keys
         delete stringifiedData.from;
         delete stringifiedData.notification;

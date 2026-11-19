@@ -130,12 +130,24 @@ apiRouter.get('/users', (req, res) => {
   res.json(users);
 });
 
-// Serve user profile avatar (handles base64 data URLs, external URLs, or default avatar)
+const DEFAULT_AVATAR_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAFgklEQVR4nO3cQY4kNRgF4boQa67A/Y/AiiU3ACFUEprpYbqq0w47/T0p9ln+I2Z2/XhYul9+/e2v+hvMLtk/Ms+i/q128GaKLgzLV0stCJu6WlpB2PTVYorBpq8WcCXqW9jE1bKtTH0bG7RarB2pb2YXrJboDtQ3tDdWS3NH6pvaJ1ZLcgL1je2D1VKcSH1zI/4S1A4cu/rwEEGy+tgQQrL6uBBCtvqgEEG2+pAQQbL6eBBCtvpgEEG2+lAQQbL6OBBCtvogEEG2+hAQQbb6AOipHcxWPzzWoXZx+uoHx3rUTk5b/dBYl9rN4asfGOtTOzps9cNiH2pXL1/9oKvw+x9//pT6G1ehdvay1Q+5quivUv8mEbyx+gF3l14MG0dQP9zdpD85htrll1c/2AninxZC7fRLqx/rJPFPCaF2+tOrH+pU8U8IoXb7p6sfiPwiyFY/DPHPCaF2/cPVj0L+cyKoXf9u9YOQXwTZ6ocgvwjIT34RCID8J0ZAfvKLQADkPzkC8pNfBOQnvwgEIAABkJ/8IhAA+Y+MgPwCODqAYRHUP4r8IsgCqH+QAASQRlD/GPKLIAug/iECEEAaQf0jyC+CLID6BwhAAGkE9ccLQAACIL8IigDqDxfAGtQ3zCKoP1oAa1DfMAmg/mDyr0V9y+kR1B8rgLWobykAAQhgVgD1hwpgPepbTo2g/kgBrEd9SwEIQAAzAqg/kPzrUt90SgT1xwlgXeqbCkAAAhCAAAQwKID6wwSwNvVNh0dQf5QA1qa+qQAEIAABCEAAAwKoP0gA61PfdGgE9ceIYG3qWwpAAAIQgAAEIAABCEAAAhDAZQHUHyKA9alvOTSC+iNEsDb1DQUgAAEIQAACEIAIyC8AAQhAAAIQgABEQH4BCEAAAhAB+QUgAAEIQATkF4AABPC5AOoPEMFa1LeZHsBp/wOIgPwCEIAATg9ABOQ/PgARnC2/AESQv32NAA6OoH7zFRDAf6iFJP98BPANtZjkn4sAPqAWlPzzEMAPqEUl/xwE8D/UwpJ/PAL4BLW8xB+HAD5JLTL5x3D7P494NbXUxL+O2/9x3JHUkhP/6wjgAmrpif8+ArgI8u+JAN6k/hdfENcggBeoxRbD9Ty+Xf1Bq1ELLIZxfCe/AP6lFlUMAiC+EARAfCFMD+CkCGrpVqS+SS7/CQHUku1AfSMBkD+nvpUAiL8E9e2mB3CnCGp57kR9y2ny3yWAWpg7Ut9UAOTPqW87JYBdI6jlOIn61kPl3zGAWogTqW8uAPLn1LcfFsAuEdQCYI8IXpZ/hwDqw2OfCN4KYOUI6oNjnwjeln/VAOpDY68IbhVAfWDsF8GXAlgpgvqw2C+CL8u/SgD1QbFnBJcEUEdQHxJ7RnCZ/GUA9QGxbwSXBlBEUB8O+0ZwufwCwPEBzIygPhj2jWCY/LMCqA+FvSMYGsDoCOoDYe8IhssvABwfwKgI6sNg7wimyT8igvog2DuC6fILAMcHcFUE9SGwdwSZ/ALA8QF8NYL6AOjZWv7nBIB32V7+58iPd9le/ocA8AVuEcDjhQjqB8d6bC//cwLAO9xC/ufIj3e4hfwPAeBNbhPA4wcR1A+M9bmF/M8JAK9yG/mfEwBe4VbyP0d+vMKt5H+uflTsQ+3qsNUPi/WpHR2++oGxLrWb01Y/NNajdnL66gfHOtQuZqsfHj21g/nqA4D8+epDgPz56oOA/EusPg6In68+FMifrz4YyL/E6uOB+PnqQ4L8+eqDgvxLrD4uiL/E6mOD+Pnqw4P8S6yW4ETqm9sHq6U4gfrG9onVktyR+qb2xmpp7kB9Q7tgtUQ7Ut/MBq0Wa2Xq29jE1bKtRH0Li1cLSHpbZrWYpLelVktLeFtqtdSEtyVH9P32N7dWbzePcmLJAAAAAElFTkSuQmCC';
+const DEFAULT_AVATAR_BUFFER = Buffer.from(DEFAULT_AVATAR_BASE64, 'base64');
+
+// Serve default contact avatar PNG directly
+apiRouter.get('/default-avatar.png', (req, res) => {
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  return res.send(DEFAULT_AVATAR_BUFFER);
+});
+
+// Serve user profile avatar (handles base64 data URLs, external URLs, or default contact avatar)
 apiRouter.get('/users/:id/avatar', (req, res) => {
   const user = store.users.get(req.params.id);
   const avatar = user?.avatar;
   if (!avatar) {
-    return res.status(404).send('No avatar');
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(DEFAULT_AVATAR_BUFFER);
   }
 
   if (avatar.startsWith('data:image/')) {
@@ -157,7 +169,9 @@ apiRouter.get('/users/:id/avatar', (req, res) => {
     return res.redirect(302, avatar);
   }
 
-  return res.status(404).send('No avatar');
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  return res.send(DEFAULT_AVATAR_BUFFER);
 });
 
 // 1. User Registration (Create New Account)

@@ -34,9 +34,9 @@ function getUserAvatarUrl(user, fallbackAvatar, fallbackUserId) {
     if (fallbackAvatar && !fallbackAvatar.startsWith('data:') && !fallbackAvatar.includes('logo.png'))
         return fallbackAvatar;
     const uid = user?.id || fallbackUserId;
-    if (user?.avatar && uid)
+    if (uid)
         return `https://chat.on-excapp.app/api/users/${uid}/avatar`;
-    return '';
+    return 'https://chat.on-excapp.app/default-avatar.png';
 }
 function getClientIp(socket) {
     const forwarded = socket.handshake.headers['x-forwarded-for'];
