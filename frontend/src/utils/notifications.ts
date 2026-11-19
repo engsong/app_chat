@@ -297,7 +297,7 @@ export async function showMessageNotification(options: {
   }
 }
 
-// Show incoming call notification
+// Show incoming call notification - identical popup format to chat message notification
 export async function showCallNotification(options: {
   callerName: string;
   isVideo: boolean;
@@ -305,69 +305,21 @@ export async function showCallNotification(options: {
   onAnswer?: () => void;
   onDecline?: () => void;
 }) {
-  if (!isNotificationSupported()) return;
-
-  if (Notification.permission !== 'granted') {
-    if (Notification.permission === 'default') {
-      const res = await requestNotificationPermission();
-      if (res !== 'granted') return;
-    } else {
-      return;
-    }
-  }
-
   const title = options.isVideo
-    ? `📹 Incoming Video Call`
-    : `📞 Incoming Voice Call`;
-  const body = `${options.callerName} is calling you... Tap to answer.`;
+    ? `📹 ${options.callerName}`
+    : `📞 ${options.callerName}`;
+  const body = `${options.isVideo ? '📹 Incoming Video Call' : '📞 Incoming Voice Call'} - Tap to answer`;
 
-  // Continuous vibration for call
-  if (navigator.vibrate) {
-    try {
-      navigator.vibrate([600, 300, 600, 300, 600]);
-    } catch (_) {}
-  }
-
-  const safeIcon = (options.callerAvatar && !options.callerAvatar.startsWith('data:'))
-    ? options.callerAvatar
-    : '/logo.png';
-
-  const notificationOptions: any = {
+  return showMessageNotification({
+    title,
     body,
-    icon: safeIcon,
-    badge: '/logo.png',
-    tag: 'incoming-call',
-    requireInteraction: true, // Keep notification active until user acts
-    renotify: true,
-    vibrate: [600, 300, 600, 300, 600],
-    actions: [
-      { action: 'answer', title: '📞 Answer' },
-      { action: 'decline', title: '❌ Decline' },
-    ],
-    data: {
-      url: window.location.origin,
-      type: 'call',
+    icon: options.callerAvatar,
+    chatId: 'incoming-call',
+    onClick: () => {
+      window.focus();
+      if (options.onAnswer) options.onAnswer();
     },
-  };
-
-  try {
-    if (swRegistration && 'showNotification' in swRegistration) {
-      await swRegistration.showNotification(title, notificationOptions);
-    } else if (navigator.serviceWorker && navigator.serviceWorker.ready) {
-      const reg = await navigator.serviceWorker.ready;
-      await reg.showNotification(title, notificationOptions);
-    } else {
-      const notif = new Notification(title, notificationOptions);
-      activeCallNotification = notif;
-      notif.onclick = () => {
-        window.focus();
-        if (options.onAnswer) options.onAnswer();
-        notif.close();
-      };
-    }
-  } catch (err) {
-    console.warn('[Notification] Error showing call notification:', err);
-  }
+  });
 }
 
 // Close call notification when call answered, rejected, or timed out

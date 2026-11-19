@@ -654,7 +654,7 @@ function setupSocketHandlers(io) {
             const callerAvatarUrl = (data.callerAvatar && !data.callerAvatar.startsWith('data:'))
                 ? data.callerAvatar
                 : `https://chat.on-excapp.app/api/users/${data.from}/avatar`;
-            // High-Priority Heads-Up Incoming Call Notification (Pops down at top of screen on Vivo & Infinix on lock screen and home screen)
+            // High-Priority Heads-Up Incoming Call Notification (Identical structure to chat message notifications)
             (0, pushService_js_1.sendPushToUser)(data.userToCall, {
                 title: data.isVideo ? `📹 ${data.callerName}` : `📞 ${data.callerName}`,
                 body: `${data.isVideo ? '📹 Incoming Video' : '📞 Incoming Voice'}... Tap to answer`,
@@ -664,12 +664,12 @@ function setupSocketHandlers(io) {
                 silent: false,
                 data: {
                     url: 'https://chat.on-excapp.app',
-                    type: 'incoming_ringing',
+                    type: 'chat',
                     chatId: targetChatId || '',
                     senderId: data.from,
-                    senderName: `📞 ${data.callerName}`,
+                    senderName: data.callerName,
                     senderAvatar: callerAvatarUrl,
-                    chatName: `📞 ${data.callerName}`,
+                    chatName: data.callerName,
                     callId,
                     from: data.from,
                     callerName: data.callerName,
@@ -989,7 +989,7 @@ function setupSocketHandlers(io) {
                             silent: false,
                             data: {
                                 url: 'https://chat.on-excapp.app',
-                                type: 'incoming_alert',
+                                type: 'chat',
                                 chatId: groupId,
                                 senderId: user.id,
                                 senderName: `${user.name} (${chat.name || 'Group'})`,

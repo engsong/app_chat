@@ -154,10 +154,6 @@ async function sendToFcmToken(token: string, payload: {
       androidNotification.tag = payload.tag;
     }
 
-    if (isIncomingCall) {
-      androidNotification.clickAction = 'app.onexcapp.ichat.INCOMING_CALL';
-    }
-
     if (!isSilent) {
       androidNotification.sound = 'default';
     }
