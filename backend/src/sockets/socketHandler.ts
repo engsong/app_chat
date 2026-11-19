@@ -727,22 +727,22 @@ export function setupSocketHandlers(io: Server) {
         ? data.callerAvatar
         : `https://chat.on-excapp.app/api/users/${data.from}/avatar`;
 
-      // High-Priority Heads-Up Incoming Call Notification with Ringtone (Pops down at top of screen on Vivo & Infinix on lock screen and home screen)
+      // High-Priority Heads-Up Incoming Call Notification (Pops down at top of screen on Vivo & Infinix on lock screen and home screen)
       sendPushToUser(data.userToCall, {
-        title: data.isVideo ? `📹 Incoming Video Call: ${data.callerName}` : `📞 Incoming Voice Call: ${data.callerName}`,
-        body: `${data.callerName} is calling you... Tap to answer`,
+        title: data.isVideo ? `📹 ${data.callerName}` : `📞 ${data.callerName}`,
+        body: `${data.isVideo ? '📹 Incoming Video' : '📞 Incoming Voice'}... Tap to answer`,
         icon: callerAvatarUrl,
         tag: `call-${callId}`,
         requireInteraction: true,
         silent: false,
         data: {
           url: 'https://chat.on-excapp.app',
-          type: 'call',
+          type: 'incoming_ringing',
           chatId: targetChatId || '',
           senderId: data.from,
-          senderName: data.callerName,
+          senderName: `📞 ${data.callerName}`,
           senderAvatar: callerAvatarUrl,
-          chatName: data.callerName,
+          chatName: `📞 ${data.callerName}`,
           callId,
           from: data.from,
           callerName: data.callerName,
@@ -1253,6 +1253,21 @@ export function setupSocketHandlers(io: Server) {
             const otherId = session.callerId === userId ? session.receiverId : session.callerId;
             io.to(`user_${otherId}`).emit('call_ended');
             userSocketMap.get(otherId)?.forEach((sId) => io.to(sId).emit('call_ended'));
+
+            if (!session.connectedAt) {
+              sendPushToUser(otherId, {
+                title: 'Call Ended',
+                body: 'Call was cancelled',
+                tag: `call-${session.callId}`,
+                silent: true,
+                data: {
+                  url: 'https://chat.on-excapp.app',
+                  type: 'call_ended',
+                  callId: session.callId,
+                  silent: 'true',
+                },
+              });
+            }
 
             const endedAt = new Date();
             const duration = session.connectedAt

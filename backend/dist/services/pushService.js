@@ -102,8 +102,8 @@ async function sendToFcmToken(token, payload) {
             });
         }
         const isSilent = payload.silent === true || payload.data?.silent === 'true' || payload.data?.type === 'call_ended';
-        const isCall = (payload.data?.type === 'call' || payload.data?.isIncomingCall === 'true' || payload.title?.toLowerCase().includes('call')) && !isSilent;
-        const channelId = isCall ? 'ichat_call_channel_v12' : 'ichat_message_channel_v12';
+        const isIncomingCall = payload.data?.isIncomingCall === 'true';
+        const channelId = 'ichat_message_channel_v12';
         stringifiedData.title = (payload.title || '').substring(0, 150);
         stringifiedData.body = (payload.body || '').substring(0, 300);
         stringifiedData.channelId = channelId;
@@ -111,7 +111,7 @@ async function sendToFcmToken(token, payload) {
             stringifiedData.silent = 'true';
         }
         if (!stringifiedData.type) {
-            stringifiedData.type = isCall ? 'call' : 'chat';
+            stringifiedData.type = isIncomingCall ? 'incoming_ringing' : 'chat';
         }
         // Safety check: ensure total data length is strictly well under 3500 bytes (FCM limit 4096 bytes)
         let payloadSize = JSON.stringify(stringifiedData).length;
@@ -127,14 +127,17 @@ async function sendToFcmToken(token, payload) {
         }
         const androidNotification = {
             channelId,
-            priority: isCall ? 'max' : 'high',
+            priority: isSilent ? 'high' : 'max',
             visibility: 'public',
             defaultSound: !isSilent,
             defaultVibrateTimings: !isSilent,
             icon: 'ic_stat_ichat',
             color: isSilent ? '#ea0038' : '#25D366',
         };
-        if (isCall) {
+        if (payload.tag) {
+            androidNotification.tag = payload.tag;
+        }
+        if (isIncomingCall) {
             androidNotification.clickAction = 'app.onexcapp.ichat.INCOMING_CALL';
         }
         if (!isSilent) {
@@ -220,6 +223,8 @@ async function sendPushToUser(userId, payload) {
         await Promise.allSettled(Array.from(fcmTokens).map((tok) => sendToFcmToken(tok, {
             title: payload.title,
             body: payload.body,
+            icon: payload.icon,
+            tag: payload.tag,
             silent: payload.silent,
             data: payload.data,
         })));
