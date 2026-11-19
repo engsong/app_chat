@@ -5,6 +5,13 @@ on:
     branches:
       - main
       - master
+  workflow_dispatch:
+    inputs:
+      build_apk:
+        description: 'Build Android APK'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: production-deploy
@@ -38,6 +45,7 @@ jobs:
 
   build-apk:
     name: 📱 Build & Publish Android APK
+    if: github.event_name == 'workflow_dispatch' && inputs.build_apk == true
     runs-on: ubuntu-latest
 
     steps:
