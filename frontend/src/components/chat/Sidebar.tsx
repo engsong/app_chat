@@ -22,9 +22,11 @@ import {
   Bell,
   BellOff,
   Smartphone,
+  ShieldAlert,
 } from 'lucide-react';
 import { Chat, User, Label } from '../../types/index.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
+import { isSuperAdmin } from '../../utils/phone.js';
 import {
   requestNotificationPermission,
   isNotificationSupported,
@@ -429,6 +431,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <Smartphone className="w-4 h-4 text-amber-400" />
                     <span>Incoming Call Setup</span>
                   </button>
+
+                  {isSuperAdmin(currentUser) && onOpenAdminDashboard && (
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        onOpenAdminDashboard();
+                      }}
+                      className="w-full text-left px-4 py-2.5 hover:bg-[#182229] hover:text-white flex items-center justify-between transition-colors text-amber-400 font-medium"
+                    >
+                      <div className="flex items-center gap-3">
+                        <ShieldAlert className="w-4 h-4 text-amber-400" />
+                        <span>Admin Console</span>
+                      </div>
+                      {pendingUsersCount !== undefined && pendingUsersCount > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-500 text-black font-black">
+                          {pendingUsersCount}
+                        </span>
+                      )}
+                    </button>
+                  )}
 
                   <div className="border-t border-[#2a3942] my-1" />
 

@@ -22,6 +22,7 @@ import {
 import { User } from '../../types/index.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
 import { compressImage } from '../../utils/imageCompressor.js';
+import { isSuperAdmin } from '../../utils/phone.js';
 
 interface BusinessProfileModalProps {
   isOpen: boolean;
@@ -292,7 +293,7 @@ export const BusinessProfileModal: React.FC<BusinessProfileModalProps> = ({
           {isCurrentUser && (
             <div className="space-y-2.5">
               {/* Admin Console Card (Only for admin) */}
-              {(user.role === 'admin' || user.phone === '02054245616' || user.phone?.toLowerCase() === 'admin') && onOpenAdminDashboard && (
+              {isSuperAdmin(user) && onOpenAdminDashboard && (
                 <div
                   onClick={() => {
                     onClose();

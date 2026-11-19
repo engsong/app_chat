@@ -21,8 +21,6 @@ import {
   Layers,
   Globe,
   Radio,
-  Crosshair,
-  Navigation,
   RefreshCw,
   LocateFixed,
 } from 'lucide-react';
@@ -65,25 +63,64 @@ export interface UserLocationData {
   };
 }
 
+// Local Storage Cache Keys for Instant 0ms Rendering
+const CACHE_KEY_OVERVIEW = 'ichat_admin_cache_overview';
+const CACHE_KEY_USERS = 'ichat_admin_cache_users';
+const CACHE_KEY_CHATS = 'ichat_admin_cache_chats';
+const CACHE_KEY_MAP = 'ichat_admin_cache_map';
+
 export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   isOpen,
   onClose,
   currentUser,
   socket,
 }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'chats' | 'map' | 'overview'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'map' | 'chats' | 'overview'>('users');
   const [userFilter, setUserFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [overview, setOverview] = useState<OverviewData | null>(null);
-  const [users, setUsers] = useState<User[]>([]);
-  const [chats, setChats] = useState<any[]>([]);
+
+  // 1. Instant Cache Initialization (0ms perception from localStorage)
+  const [overview, setOverview] = useState<OverviewData | null>(() => {
+    try {
+      const saved = localStorage.getItem(CACHE_KEY_OVERVIEW);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [users, setUsers] = useState<User[]>(() => {
+    try {
+      const saved = localStorage.getItem(CACHE_KEY_USERS);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [chats, setChats] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem(CACHE_KEY_CHATS);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [selectedAuditChat, setSelectedAuditChat] = useState<any | null>(null);
   const [auditMessages, setAuditMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   // Live Map Geolocation State
-  const [mapUsers, setMapUsers] = useState<UserLocationData[]>([]);
+  const [mapUsers, setMapUsers] = useState<UserLocationData[]>(() => {
+    try {
+      const saved = localStorage.getItem(CACHE_KEY_MAP);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [mapLoading, setMapLoading] = useState(false);
   const [mapFilter, setMapFilter] = useState<'all' | 'online'>('all');
   const [mapSearch, setMapSearch] = useState('');
@@ -94,6 +131,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const markersMapRef = useRef<Map<string, L.Marker>>(new Map());
   const tileLayerRef = useRef<L.TileLayer | null>(null);
 
+  // Fetch Overview with Cache Persistence
   const fetchOverview = async () => {
     try {
       const res = await fetch('/api/admin/overview', {
@@ -102,21 +140,30 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
       if (res.ok) {
         const data = await res.json();
         setOverview(data);
+        try {
+          localStorage.setItem(CACHE_KEY_OVERVIEW, JSON.stringify(data));
+        } catch (_) {}
       }
     } catch (e) {
       console.error('Error fetching admin overview:', e);
     }
   };
 
+  // Fetch Users with Cache Persistence
   const fetchUsers = async () => {
     try {
-      setLoading(true);
+      if (users.length === 0) setLoading(true);
       const res = await fetch('/api/admin/users?status=all', {
         headers: { 'x-admin-id': currentUser.id },
       });
       if (res.ok) {
         const data = await res.json();
-        setUsers(data);
+        if (Array.isArray(data)) {
+          setUsers(data);
+          try {
+            localStorage.setItem(CACHE_KEY_USERS, JSON.stringify(data));
+          } catch (_) {}
+        }
       }
     } catch (e) {
       console.error('Error fetching admin users:', e);
@@ -125,15 +172,21 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     }
   };
 
+  // Fetch Chats with Cache Persistence
   const fetchChats = async () => {
     try {
-      setLoading(true);
+      if (chats.length === 0) setLoading(true);
       const res = await fetch('/api/admin/chats', {
         headers: { 'x-admin-id': currentUser.id },
       });
       if (res.ok) {
         const data = await res.json();
-        setChats(data);
+        if (Array.isArray(data)) {
+          setChats(data);
+          try {
+            localStorage.setItem(CACHE_KEY_CHATS, JSON.stringify(data));
+          } catch (_) {}
+        }
       }
     } catch (e) {
       console.error('Error fetching admin chats:', e);
@@ -150,7 +203,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
       });
       if (res.ok) {
         const data = await res.json();
-        setAuditMessages(data);
+        setAuditMessages(Array.isArray(data) ? data : []);
       }
     } catch (e) {
       console.error('Error fetching audit messages:', e);
@@ -159,10 +212,34 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     }
   };
 
+  const fetchOnlineLocations = async () => {
+    try {
+      if (mapUsers.length === 0) setMapLoading(true);
+      const res = await fetch('/api/admin/online-locations', {
+        headers: { 'x-admin-id': currentUser.id },
+      });
+      if (res.ok) {
+        const data: UserLocationData[] = await res.json();
+        if (Array.isArray(data)) {
+          setMapUsers(data);
+          try {
+            localStorage.setItem(CACHE_KEY_MAP, JSON.stringify(data));
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching online locations:', e);
+    } finally {
+      setMapLoading(false);
+    }
+  };
+
+  // On Tab change or Modal Open, revalidate in background
   useEffect(() => {
     if (!isOpen) return;
     if (activeTab === 'users' || activeTab === 'overview') {
-      Promise.all([fetchOverview(), fetchUsers()]);
+      fetchOverview();
+      fetchUsers();
     } else if (activeTab === 'chats') {
       fetchChats();
     } else if (activeTab === 'map') {
@@ -173,23 +250,31 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const handleApprove = async (userId: string) => {
     try {
       setActionLoadingId(userId);
+      // Optimistic update
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, status: 'approved' } : u))
+      );
+      setOverview((prev) =>
+        prev
+          ? {
+              ...prev,
+              pendingCount: Math.max(0, prev.pendingCount - 1),
+              approvedCount: prev.approvedCount + 1,
+            }
+          : null
+      );
+
       const res = await fetch(`/api/admin/users/${userId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-id': currentUser.id },
       });
       if (res.ok) {
-        setUsers((prev) =>
-          prev.map((u) => (u.id === userId ? { ...u, status: 'approved' } : u))
-        );
-        setOverview((prev) =>
-          prev
-            ? {
-                ...prev,
-                pendingCount: Math.max(0, prev.pendingCount - 1),
-                approvedCount: prev.approvedCount + 1,
-              }
-            : null
-        );
+        const updated = await res.json();
+        if (updated.user) {
+          setUsers((prev) =>
+            prev.map((u) => (u.id === userId ? { ...u, ...updated.user } : u))
+          );
+        }
       }
     } catch (e) {
       console.error('Error approving user:', e);
@@ -201,23 +286,31 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const handleReject = async (userId: string) => {
     try {
       setActionLoadingId(userId);
+      // Optimistic update
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, status: 'rejected' } : u))
+      );
+      setOverview((prev) =>
+        prev
+          ? {
+              ...prev,
+              pendingCount: Math.max(0, prev.pendingCount - 1),
+              rejectedCount: prev.rejectedCount + 1,
+            }
+          : null
+      );
+
       const res = await fetch(`/api/admin/users/${userId}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-id': currentUser.id },
       });
       if (res.ok) {
-        setUsers((prev) =>
-          prev.map((u) => (u.id === userId ? { ...u, status: 'rejected' } : u))
-        );
-        setOverview((prev) =>
-          prev
-            ? {
-                ...prev,
-                pendingCount: Math.max(0, prev.pendingCount - 1),
-                rejectedCount: prev.rejectedCount + 1,
-              }
-            : null
-        );
+        const updated = await res.json();
+        if (updated.user) {
+          setUsers((prev) =>
+            prev.map((u) => (u.id === userId ? { ...u, ...updated.user } : u))
+          );
+        }
       }
     } catch (e) {
       console.error('Error rejecting user:', e);
@@ -226,67 +319,49 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     }
   };
 
-  const handleToggleAdmin = async (userId: string, currentRole?: string) => {
+  const handleToggleAdminRole = async (userId: string, currentRole: string) => {
     const nextRole = currentRole === 'admin' ? 'user' : 'admin';
     try {
       setActionLoadingId(userId);
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, role: nextRole } : u))
+      );
       const res = await fetch(`/api/admin/users/${userId}/role`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-id': currentUser.id },
         body: JSON.stringify({ role: nextRole }),
       });
       if (res.ok) {
-        setUsers((prev) =>
-          prev.map((u) => (u.id === userId ? { ...u, role: nextRole as any } : u))
-        );
+        const updated = await res.json();
+        if (updated.user) {
+          setUsers((prev) =>
+            prev.map((u) => (u.id === userId ? { ...u, ...updated.user } : u))
+          );
+        }
       }
     } catch (e) {
-      console.error('Error changing user role:', e);
+      console.error('Error toggling admin role:', e);
     } finally {
       setActionLoadingId(null);
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm('Are you sure you want to delete this user?')) return;
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!window.confirm(`Are you sure you want to permanently delete user "${userName}"?`)) {
+      return;
+    }
     try {
       setActionLoadingId(userId);
-      const res = await fetch(`/api/admin/users/${userId}`, {
+      setUsers((prev) => prev.filter((u) => u.id !== userId));
+      setMapUsers((prev) => prev.filter((u) => u.id !== userId));
+      await fetch(`/api/admin/users/${userId}`, {
         method: 'DELETE',
         headers: { 'x-admin-id': currentUser.id },
       });
-      if (res.ok) {
-        setUsers((prev) => prev.filter((u) => u.id !== userId));
-        setOverview((prev) =>
-          prev
-            ? {
-                ...prev,
-                totalUsers: Math.max(0, prev.totalUsers - 1),
-              }
-            : null
-        );
-      }
     } catch (e) {
       console.error('Error deleting user:', e);
     } finally {
       setActionLoadingId(null);
-    }
-  };
-
-  const fetchOnlineLocations = async () => {
-    try {
-      setMapLoading(true);
-      const res = await fetch('/api/admin/online-locations', {
-        headers: { 'x-admin-id': currentUser.id },
-      });
-      if (res.ok) {
-        const data: UserLocationData[] = await res.json();
-        setMapUsers(data);
-      }
-    } catch (e) {
-      console.error('Error fetching online locations:', e);
-    } finally {
-      setMapLoading(false);
     }
   };
 
@@ -312,93 +387,98 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     tileLayerRef.current = layer;
   };
 
-  // Real-time map monitoring socket listener
+  // Real-time WebSocket Listeners for Instant Incremental Sync
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !socket) return;
 
-    if (socket) {
-      socket.emit('admin_join_map_monitoring');
+    socket.emit('admin_join_map_monitoring');
 
-      const handleLocationUpdate = (data: { userId: string; location: any; isOnline: boolean }) => {
-        setMapUsers((prev) =>
-          prev.map((u) =>
-            u.id === data.userId
-              ? { ...u, location: data.location, isOnline: data.isOnline }
-              : u
-          )
-        );
-        setUsers((prev) =>
-          prev.map((u) =>
-            u.id === data.userId
-              ? { ...u, location: data.location, isOnline: data.isOnline }
-              : u
-          )
-        );
-      };
+    const handleLocationUpdate = (data: { userId: string; location: any; isOnline: boolean }) => {
+      setMapUsers((prev) =>
+        prev.map((u) =>
+          u.id === data.userId
+            ? { ...u, location: data.location, isOnline: data.isOnline }
+            : u
+        )
+      );
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === data.userId
+            ? { ...u, location: data.location, isOnline: data.isOnline }
+            : u
+        )
+      );
+    };
 
-      const handleStatusUpdate = (data: { userId: string; isOnline: boolean; lastSeen: string }) => {
-        setMapUsers((prev) =>
-          prev.map((u) =>
-            u.id === data.userId
-              ? { ...u, isOnline: data.isOnline, lastSeen: data.lastSeen }
-              : u
-          )
-        );
-        setUsers((prev) =>
-          prev.map((u) =>
-            u.id === data.userId
-              ? { ...u, isOnline: data.isOnline, lastSeen: data.lastSeen }
-              : u
-          )
-        );
-      };
+    const handleStatusUpdate = (data: { userId: string; isOnline: boolean; lastSeen: string }) => {
+      setMapUsers((prev) =>
+        prev.map((u) =>
+          u.id === data.userId
+            ? { ...u, isOnline: data.isOnline, lastSeen: data.lastSeen }
+            : u
+        )
+      );
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === data.userId
+            ? { ...u, isOnline: data.isOnline, lastSeen: data.lastSeen }
+            : u
+        )
+      );
+    };
 
-      const handleNewUserRegistered = (data: { user: User }) => {
-        if (!data?.user) return;
-        setUsers((prev) => {
-          if (prev.some((u) => u.id === data.user.id)) {
-            return prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u));
-          }
-          return [data.user, ...prev];
-        });
-        setOverview((prev) =>
-          prev
-            ? {
-                ...prev,
-                totalUsers: prev.totalUsers + 1,
-                pendingCount: data.user.status === 'pending' ? prev.pendingCount + 1 : prev.pendingCount,
-                approvedCount: data.user.status === 'approved' ? prev.approvedCount + 1 : prev.approvedCount,
-              }
-            : null
-        );
-      };
+    const handleNewUserRegistered = (data: { user: User }) => {
+      if (!data?.user) return;
+      setUsers((prev) => {
+        if (prev.some((u) => u.id === data.user.id)) {
+          return prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u));
+        }
+        return [data.user, ...prev];
+      });
+      setOverview((prev) =>
+        prev
+          ? {
+              ...prev,
+              totalUsers: prev.totalUsers + 1,
+              pendingCount: data.user.status === 'pending' ? prev.pendingCount + 1 : prev.pendingCount,
+              approvedCount: data.user.status === 'approved' ? prev.approvedCount + 1 : prev.approvedCount,
+            }
+          : null
+      );
+    };
 
-      const handleUserUpdated = (data: { user: User }) => {
-        if (!data?.user) return;
+    const handleUserUpdated = (data: { user: any }) => {
+      if (!data?.user) return;
+      if (data.user.deleted) {
+        setUsers((prev) => prev.filter((u) => u.id !== data.user.id));
+        setMapUsers((prev) => prev.filter((u) => u.id !== data.user.id));
+      } else {
         setUsers((prev) =>
           prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u))
         );
-      };
+        setMapUsers((prev) =>
+          prev.map((u) => (u.id === data.user.id ? { ...u, ...data.user } : u))
+        );
+      }
+    };
 
-      socket.on('admin_user_location_updated', handleLocationUpdate);
-      socket.on('admin_user_status_changed', handleStatusUpdate);
-      socket.on('admin_new_user_registered', handleNewUserRegistered);
-      socket.on('admin_user_updated', handleUserUpdated);
+    socket.on('admin_user_location_updated', handleLocationUpdate);
+    socket.on('admin_user_status_changed', handleStatusUpdate);
+    socket.on('admin_new_user_registered', handleNewUserRegistered);
+    socket.on('admin_user_updated', handleUserUpdated);
 
-      return () => {
-        socket.emit('admin_leave_map_monitoring');
-        socket.off('admin_user_location_updated', handleLocationUpdate);
-        socket.off('admin_user_status_changed', handleStatusUpdate);
-        socket.off('admin_new_user_registered', handleNewUserRegistered);
-        socket.off('admin_user_updated', handleUserUpdated);
-      };
-    }
+    return () => {
+      socket.emit('admin_leave_map_monitoring');
+      socket.off('admin_user_location_updated', handleLocationUpdate);
+      socket.off('admin_user_status_changed', handleStatusUpdate);
+      socket.off('admin_new_user_registered', handleNewUserRegistered);
+      socket.off('admin_user_updated', handleUserUpdated);
+    };
   }, [isOpen, socket]);
 
-  // Initialize Map
+  // Initialize Leaflet Map safely when activeTab === 'map'
   useEffect(() => {
     if (!isOpen || activeTab !== 'map') return;
-    fetchOnlineLocations();
 
     const timer = setTimeout(() => {
       if (!mapContainerRef.current) return;
@@ -423,7 +503,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     return () => clearTimeout(timer);
   }, [activeTab, isOpen, mapStyle]);
 
-  // Update Map Markers
+  // Update Map Markers on Location updates
   useEffect(() => {
     if (activeTab !== 'map' || !mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
@@ -432,10 +512,11 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     markersMapRef.current.clear();
 
     const filtered = mapUsers.filter((u) => {
+      if (!u) return false;
       if (mapFilter === 'online' && !u.isOnline) return false;
       if (mapSearch) {
         const q = mapSearch.toLowerCase();
-        return u.name.toLowerCase().includes(q) || u.phone.toLowerCase().includes(q);
+        return (u.name || '').toLowerCase().includes(q) || (u.phone || '').includes(q);
       }
       return true;
     });
@@ -476,8 +557,8 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
             <img src="${avatarSrc}" style="width: 38px; height: 38px; border-radius: 9999px; object-fit: cover; border: 2px solid ${isOnline ? '#00a884' : '#6b7280'};" />
             <div>
-              <div style="font-weight: 700; font-size: 13px; color: #fff;">${u.name}</div>
-              <div style="font-size: 11px; color: #8696a0;">${u.phone}</div>
+              <div style="font-weight: 700; font-size: 13px; color: #fff;">${u.name || 'User'}</div>
+              <div style="font-size: 11px; color: #8696a0;">${u.phone || ''}</div>
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 6px;">
@@ -491,16 +572,10 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
           <div style="font-size: 10px; color: #8696a0; margin-bottom: 6px;">
             Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)}
           </div>
-          <div style="font-size: 10px; color: #8696a0; margin-bottom: 8px;">
-            Last Seen: ${new Date(u.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </div>
         </div>
       `;
 
-      marker.bindPopup(popupHtml, {
-        className: 'custom-admin-popup',
-      });
-
+      marker.bindPopup(popupHtml, { className: 'custom-admin-popup' });
       marker.on('click', () => {
         setSelectedMapUser(u);
       });
@@ -517,10 +592,13 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
   const userCounts = useMemo(() => {
     let pending = 0, approved = 0, rejected = 0;
-    for (const u of users) {
-      if (u.status === 'pending') pending++;
-      else if (u.status === 'approved') approved++;
-      else if (u.status === 'rejected') rejected++;
+    if (Array.isArray(users)) {
+      for (const u of users) {
+        if (!u) continue;
+        if (u.status === 'pending') pending++;
+        else if (u.status === 'approved') approved++;
+        else if (u.status === 'rejected') rejected++;
+      }
     }
     return {
       all: users.length,
@@ -531,40 +609,43 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   }, [users]);
 
   const filteredUsers = useMemo(() => {
+    if (!Array.isArray(users)) return [];
     return users.filter((u) => {
+      if (!u) return false;
       if (userFilter !== 'all' && u.status !== userFilter) return false;
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
-      return (
-        u.name.toLowerCase().includes(q) ||
-        u.phone.toLowerCase().includes(q) ||
-        (u.businessName && u.businessName.toLowerCase().includes(q))
-      );
+      const name = (u.name || '').toLowerCase();
+      const phone = (u.phone || '').toLowerCase();
+      const bName = (u.businessName || '').toLowerCase();
+      return name.includes(q) || phone.includes(q) || bName.includes(q);
     });
   }, [users, userFilter, searchQuery]);
 
   const filteredChats = useMemo(() => {
+    if (!Array.isArray(chats)) return [];
     if (!searchQuery.trim()) return chats;
     const q = searchQuery.toLowerCase();
     return chats.filter((c) => {
+      if (!c) return false;
       if (c.name && c.name.toLowerCase().includes(q)) return true;
       return c.members?.some((m: any) =>
-        m.user?.name?.toLowerCase().includes(q) || m.user?.phone?.includes(q)
+        (m?.user?.name || '').toLowerCase().includes(q) || (m?.user?.phone || '').includes(q)
       );
     });
   }, [chats, searchQuery]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-[#111b21] border border-[#2a3942] rounded-2xl w-full max-w-4xl h-[92dvh] flex flex-col shadow-2xl overflow-hidden animate-scale-up">
+    <div className="fixed inset-0 z-50 bg-[#111b21] sm:bg-black/80 sm:backdrop-blur-sm flex items-center justify-center sm:p-4 animate-fade-in">
+      <div className="bg-[#111b21] sm:border sm:border-[#2a3942] sm:rounded-2xl w-full max-w-5xl h-full sm:h-[92vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="px-4 py-3 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-[#00a884]/20 border border-[#00a884]/40 flex items-center justify-center text-[#00a884]">
-              <ShieldAlert className="w-5 h-5" />
+            <div className="w-9 h-9 rounded-xl bg-[#00a884]/20 border border-[#00a884]/40 flex items-center justify-center text-[#00a884] flex-shrink-0">
+              <ShieldAlert className="w-5 h-5 text-[#00a884]" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-sm sm:text-base font-semibold text-white">
                   IChat Admin Console
                 </h2>
@@ -572,22 +653,37 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                   SUPER ADMIN
                 </span>
               </div>
-              <p className="text-[11px] text-[#8696a0]">
-                User approvals, registration management & chat monitoring
+              <p className="text-[11px] text-[#8696a0] truncate">
+                User approvals, live GPS map & chat monitoring
               </p>
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-2 text-[#8696a0] hover:text-white rounded-full hover:bg-[#374248] transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => {
+                fetchOverview();
+                fetchUsers();
+                if (activeTab === 'chats') fetchChats();
+                if (activeTab === 'map') fetchOnlineLocations();
+              }}
+              className="p-2 text-[#8696a0] hover:text-white rounded-full hover:bg-[#374248] transition-colors"
+              title="Refresh Data"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading || mapLoading ? 'animate-spin text-[#00a884]' : ''}`} />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 text-[#8696a0] hover:text-white rounded-full hover:bg-[#374248] transition-colors"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Navigation Tabs */}
-        <div className="px-4 pt-2 bg-[#202c33] border-b border-[#2a3942] flex items-center gap-2 flex-shrink-0 overflow-x-auto">
+        <div className="px-3 sm:px-4 pt-2 bg-[#202c33] border-b border-[#2a3942] flex items-center gap-2 flex-shrink-0 overflow-x-auto no-scrollbar">
           <button
             onClick={() => {
               setActiveTab('users');
@@ -600,12 +696,30 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>User Registrations</span>
-            {overview && overview.pendingCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500 text-black font-bold">
-                {overview.pendingCount}
+            <span>Registrations</span>
+            {userCounts.pending > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500 text-black font-bold animate-pulse">
+                {userCounts.pending}
               </span>
             )}
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('map');
+              setSelectedAuditChat(null);
+            }}
+            className={`pb-2.5 px-3 text-xs font-medium flex items-center gap-1.5 border-b-2 transition-all whitespace-nowrap ${
+              activeTab === 'map'
+                ? 'border-[#00a884] text-[#00a884]'
+                : 'border-transparent text-[#8696a0] hover:text-white'
+            }`}
+          >
+            <MapPin className="w-4 h-4" />
+            <span>Live GPS Map</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#2a3942] text-gray-300">
+              {mapUsers.length}
+            </span>
           </button>
 
           <button
@@ -620,7 +734,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
             }`}
           >
             <MessageSquare className="w-4 h-4" />
-            <span>Chat Monitor & Audit</span>
+            <span>Chat Monitor</span>
             {overview && (
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#2a3942] text-gray-300">
                 {overview.totalChats}
@@ -661,14 +775,14 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
               </div>
 
               {/* Status filter tabs */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 no-scrollbar">
                 {(['all', 'pending', 'approved', 'rejected'] as const).map((filter) => {
                   const count = userCounts[filter];
                   return (
                     <button
                       key={filter}
                       onClick={() => setUserFilter(filter)}
-                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium capitalize transition-all flex items-center gap-1.5 ${
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium capitalize transition-all flex items-center gap-1.5 flex-shrink-0 ${
                         userFilter === filter
                           ? 'bg-[#00a884] text-white font-semibold shadow-sm'
                           : 'bg-[#202c33] text-[#8696a0] hover:text-white'
@@ -689,20 +803,12 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                     </button>
                   );
                 })}
-
-                <button
-                  onClick={() => Promise.all([fetchOverview(), fetchUsers()])}
-                  title="Refresh users list"
-                  className="p-1.5 ml-1 text-[#8696a0] hover:text-white bg-[#202c33] hover:bg-[#374248] rounded-lg transition-colors flex items-center justify-center"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-[#00a884]' : ''}`} />
-                </button>
               </div>
             </div>
 
             {/* Users List */}
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {loading ? (
+              {loading && filteredUsers.length === 0 ? (
                 <div className="py-12 text-center text-xs text-[#8696a0]">Loading users...</div>
               ) : filteredUsers.length === 0 ? (
                 <div className="py-12 text-center text-xs text-[#8696a0]">
@@ -723,13 +829,17 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                       <div className="flex items-center gap-3 min-w-0">
                         <img
                           src={getAvatarUrl(u.avatar)}
-                          alt={u.name}
+                          alt={u.name || 'User'}
                           className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src =
+                              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100';
+                          }}
                         />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-semibold text-white truncate">
-                              {u.name}
+                              {u.name || 'Unnamed User'}
                             </span>
                             {u.role === 'admin' && (
                               <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-400 font-bold border border-blue-500/30 flex items-center gap-1">
@@ -758,81 +868,70 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                             <span>•</span>
                             <span>Registered: {new Date(u.createdAt || Date.now()).toLocaleDateString()}</span>
                             {u.isBusiness && (
-                              <>
-                                <span>•</span>
-                                <span className="text-[#00a884]">💼 {u.businessName || 'Business'}</span>
-                              </>
+                              <span className="text-amber-400 font-medium">🏢 {u.businessName || 'Business'}</span>
                             )}
                           </div>
                         </div>
                       </div>
 
-                      {/* Action buttons */}
-                      <div className="flex items-center gap-1.5 self-end sm:self-center flex-wrap">
+                      {/* Action Buttons */}
+                      <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
                         {isPending && (
                           <>
                             <button
                               onClick={() => handleApprove(u.id)}
                               disabled={actionLoadingId === u.id}
-                              className="px-3 py-1.5 rounded-lg bg-[#00a884] hover:bg-[#008f6f] text-white text-xs font-semibold flex items-center gap-1 shadow transition-all active:scale-95"
+                              className="px-3 py-1.5 rounded-lg bg-[#00a884] hover:bg-[#008f6f] text-white text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm disabled:opacity-50"
                             >
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Approve</span>
                             </button>
                             <button
                               onClick={() => handleReject(u.id)}
                               disabled={actionLoadingId === u.id}
-                              className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold flex items-center gap-1 shadow transition-all active:scale-95"
+                              className="px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 border border-rose-500/30 text-xs font-semibold flex items-center gap-1 transition-colors disabled:opacity-50"
                             >
-                              <XCircle className="w-3.5 h-3.5" /> Reject
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>Reject</span>
                             </button>
                           </>
-                        )}
-
-                        {isApproved && !isCurrent && (
-                          <button
-                            onClick={() => handleReject(u.id)}
-                            disabled={actionLoadingId === u.id}
-                            className="px-2.5 py-1.5 rounded-lg bg-[#2a3942] hover:bg-rose-900/40 text-gray-300 hover:text-rose-400 text-xs font-medium transition-colors"
-                            title="Revoke and Reject Account"
-                          >
-                            Reject
-                          </button>
                         )}
 
                         {isRejected && (
                           <button
                             onClick={() => handleApprove(u.id)}
                             disabled={actionLoadingId === u.id}
-                            className="px-2.5 py-1.5 rounded-lg bg-[#00a884]/20 hover:bg-[#00a884]/40 text-[#00a884] text-xs font-semibold transition-colors"
+                            className="px-3 py-1.5 rounded-lg bg-[#00a884] hover:bg-[#008f6f] text-white text-xs font-semibold flex items-center gap-1 transition-colors disabled:opacity-50"
                           >
-                            Re-Approve
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Re-Approve</span>
                           </button>
                         )}
 
                         {!isCurrent && (
-                          <button
-                            onClick={() => handleToggleAdmin(u.id, u.role)}
-                            disabled={actionLoadingId === u.id}
-                            className={`p-1.5 rounded-lg text-xs transition-colors ${
-                              u.role === 'admin'
-                                ? 'bg-blue-600/30 text-blue-300 hover:bg-blue-600/50'
-                                : 'bg-[#2a3942] text-gray-400 hover:text-white'
-                            }`}
-                            title={u.role === 'admin' ? 'Demote from Admin' : 'Make Admin'}
-                          >
-                            <ShieldCheck className="w-4 h-4" />
-                          </button>
-                        )}
+                          <>
+                            <button
+                              onClick={() => handleToggleAdminRole(u.id, u.role || 'user')}
+                              disabled={actionLoadingId === u.id}
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                                u.role === 'admin'
+                                  ? 'bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20'
+                                  : 'bg-[#111b21] border-[#2a3942] text-[#8696a0] hover:text-white'
+                              }`}
+                              title={u.role === 'admin' ? 'Remove Admin Privileges' : 'Grant Admin Privileges'}
+                            >
+                              {u.role === 'admin' ? 'Admin Role' : 'Make Admin'}
+                            </button>
 
-                        {!isCurrent && (
-                          <button
-                            onClick={() => handleDeleteUser(u.id)}
-                            disabled={actionLoadingId === u.id}
-                            className="p-1.5 rounded-lg bg-[#2a3942] hover:bg-rose-950 text-gray-400 hover:text-rose-400 text-xs transition-colors"
-                            title="Delete user account"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                            <button
+                              onClick={() => handleDeleteUser(u.id, u.name)}
+                              disabled={actionLoadingId === u.id}
+                              className="p-1.5 rounded-lg bg-[#111b21] text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                              title="Delete User"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -843,7 +942,106 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
           </div>
         )}
 
-        {/* Tab 2: Chat Monitor & Audit (Seen other chating only admin) */}
+        {/* Tab 2: Live GPS Geolocation Map */}
+        {activeTab === 'map' && (
+          <div className="flex-1 flex flex-col md:flex-row min-h-0 bg-[#111b21] relative overflow-hidden">
+            {/* Map Container */}
+            <div className="flex-1 h-full min-h-[300px] relative">
+              <div ref={mapContainerRef} className="w-full h-full z-10" />
+
+              {/* Map Floating Style Controls */}
+              <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5 bg-[#202c33]/90 backdrop-blur-md p-1.5 rounded-xl border border-[#2a3942] shadow-xl">
+                {(['dark', 'street', 'satellite'] as const).map((style) => (
+                  <button
+                    key={style}
+                    onClick={() => setMapStyle(style)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold capitalize transition-all ${
+                      mapStyle === style
+                        ? 'bg-[#00a884] text-white shadow-sm'
+                        : 'text-[#8696a0] hover:text-white'
+                    }`}
+                  >
+                    {style}
+                  </button>
+                ))}
+              </div>
+
+              {/* Online Marker Counter */}
+              <div className="absolute bottom-3 left-3 z-20 flex items-center gap-2 bg-[#202c33]/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-[#2a3942] text-xs text-white shadow-xl">
+                <span className="w-2 h-2 rounded-full bg-[#00a884] animate-ping" />
+                <span className="font-semibold">{mapUsers.filter((u) => u.isOnline).length} Active Online</span>
+              </div>
+            </div>
+
+            {/* Sidebar list of participants */}
+            <div className="w-full md:w-80 h-48 md:h-full bg-[#202c33] border-t md:border-t-0 md:border-l border-[#2a3942] flex flex-col flex-shrink-0">
+              <div className="p-2.5 border-b border-[#2a3942] flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#8696a0]" />
+                  <input
+                    type="text"
+                    placeholder="Search participant..."
+                    value={mapSearch}
+                    onChange={(e) => setMapSearch(e.target.value)}
+                    className="w-full bg-[#111b21] text-white text-xs pl-8 pr-2 py-1.5 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#00a884]"
+                  />
+                </div>
+                <button
+                  onClick={() => setMapFilter((prev) => (prev === 'all' ? 'online' : 'all'))}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    mapFilter === 'online' ? 'bg-[#00a884] text-white' : 'bg-[#111b21] text-[#8696a0]'
+                  }`}
+                >
+                  {mapFilter === 'online' ? 'Online' : 'All'}
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+                {mapUsers.map((u) => (
+                  <div
+                    key={u.id}
+                    onClick={() => {
+                      setSelectedMapUser(u);
+                      if (mapInstanceRef.current && u.location) {
+                        mapInstanceRef.current.setView([u.location.lat, u.location.lng], 15);
+                      }
+                    }}
+                    className={`p-2 rounded-xl border cursor-pointer transition-all flex items-center gap-2.5 ${
+                      selectedMapUser?.id === u.id
+                        ? 'bg-[#111b21] border-[#00a884]'
+                        : 'bg-[#111b21]/60 border-[#2a3942] hover:border-[#374248]'
+                    }`}
+                  >
+                    <div className="relative">
+                      <img
+                        src={getAvatarUrl(u.avatar)}
+                        alt={u.name}
+                        className="w-8 h-8 rounded-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src =
+                            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100';
+                        }}
+                      />
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-[#111b21] ${
+                          u.isOnline ? 'bg-[#00a884]' : 'bg-gray-500'
+                        }`}
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-white truncate">{u.name}</div>
+                      <div className="text-[10px] text-[#8696a0] truncate">
+                        {u.location?.city ? `${u.location.city}, ` : ''}{u.location?.country || 'Laos'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: Chat Monitor & Audit */}
         {activeTab === 'chats' && (
           <div className="flex-1 flex flex-col min-h-0 bg-[#111b21]">
             {selectedAuditChat ? (
@@ -994,7 +1192,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                  {loading ? (
+                  {loading && filteredChats.length === 0 ? (
                     <div className="py-12 text-center text-xs text-[#8696a0]">Loading chats...</div>
                   ) : filteredChats.length === 0 ? (
                     <div className="py-12 text-center text-xs text-[#8696a0]">
@@ -1047,7 +1245,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
           </div>
         )}
 
-        {/* Tab 3: System Overview */}
+        {/* Tab 4: System Overview */}
         {activeTab === 'overview' && (
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#111b21]">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
@@ -1108,9 +1306,10 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
             <div className="p-4 bg-[#202c33] border border-[#2a3942] rounded-2xl text-xs text-[#8696a0] space-y-2">
               <h4 className="text-sm font-semibold text-white">Admin Policy & Security Rules:</h4>
-              <p>• Only users with role &apos;admin&apos; or phone &apos;02054245616&apos; have access to this console.</p>
+              <p>• Only authorized administrators have access to this console.</p>
               <p>• When a new user registers, their account is flagged as &apos;Pending Approval&apos; until approved here.</p>
               <p>• The Chat Monitoring tab allows compliance inspection of all 1-on-1 and group chats.</p>
+              <p>• Live GPS Map shows real-time location telemetry of online devices.</p>
             </div>
           </div>
         )}

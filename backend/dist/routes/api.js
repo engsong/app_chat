@@ -861,6 +861,7 @@ exports.apiRouter.post('/admin/users/:id/approve', verifyAdmin, (req, res) => {
     user.status = 'approved';
     user.updatedAt = new Date();
     store_js_1.store.saveToFile();
+    (0, socketHandler_js_1.broadcastUserUpdated)(user);
     res.json({ success: true, user });
 });
 // 4. Reject User
@@ -871,6 +872,7 @@ exports.apiRouter.post('/admin/users/:id/reject', verifyAdmin, (req, res) => {
     user.status = 'rejected';
     user.updatedAt = new Date();
     store_js_1.store.saveToFile();
+    (0, socketHandler_js_1.broadcastUserUpdated)(user);
     res.json({ success: true, user });
 });
 // 5. Toggle Admin Role
@@ -885,6 +887,7 @@ exports.apiRouter.post('/admin/users/:id/role', verifyAdmin, (req, res) => {
     user.role = role;
     user.updatedAt = new Date();
     store_js_1.store.saveToFile();
+    (0, socketHandler_js_1.broadcastUserUpdated)(user);
     res.json({ success: true, user });
 });
 // 6. Delete User
@@ -893,9 +896,13 @@ exports.apiRouter.delete('/admin/users/:id', verifyAdmin, (req, res) => {
     if (targetId === req.adminUser.id) {
         return res.status(400).json({ error: 'Admin cannot delete their own account.' });
     }
+    const existing = store_js_1.store.users.get(targetId);
     store_js_1.store.users.delete(targetId);
     store_js_1.store.userContacts.delete(targetId);
     store_js_1.store.saveToFile();
+    if (existing) {
+        (0, socketHandler_js_1.broadcastUserUpdated)({ ...existing, deleted: true });
+    }
     res.json({ success: true });
 });
 // 7. Admin Chat Monitoring: List ALL chats across the app

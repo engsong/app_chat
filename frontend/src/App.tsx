@@ -19,6 +19,7 @@ import { useWebRTC } from './hooks/useWebRTC.js';
 import { User, Chat, Message, Product, QuickReply, Label, StatusItem } from './types/index.js';
 import { soundEffects } from './utils/audioTones.js';
 import { getAvatarUrl } from './utils/avatar.js';
+import { isSuperAdmin } from './utils/phone.js';
 import { App as CapApp } from '@capacitor/app';
 import {
   registerServiceWorker,
@@ -413,7 +414,7 @@ export const App: React.FC = () => {
     loadUserChats();
 
     // Fetch admin stats if user is super admin
-    if (currentUser.role === 'admin' || currentUser.phone === '02054245616' || currentUser.phone?.toLowerCase() === 'admin') {
+    if (isSuperAdmin(currentUser)) {
       fetch('/api/admin/overview', {
         headers: { 'x-admin-id': currentUser.id },
       })
@@ -1411,7 +1412,7 @@ export const App: React.FC = () => {
       />
 
       {/* 11. Super Admin Dashboard Modal (User Approvals & Chat Monitoring) */}
-      {currentUser && (currentUser.role === 'admin' || currentUser.phone === '02054245616' || currentUser.phone?.toLowerCase() === 'admin') && (
+      {currentUser && isSuperAdmin(currentUser) && (
         <AdminDashboardModal
           isOpen={showAdminDashboard}
           onClose={() => {
@@ -1422,6 +1423,7 @@ export const App: React.FC = () => {
               .catch(() => {});
           }}
           currentUser={currentUser}
+          socket={socket}
         />
       )}
 

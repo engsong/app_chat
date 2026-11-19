@@ -1004,6 +1004,7 @@ apiRouter.post('/admin/users/:id/approve', verifyAdmin, (req, res) => {
   user.status = 'approved';
   user.updatedAt = new Date();
   store.saveToFile();
+  broadcastUserUpdated(user);
 
   res.json({ success: true, user });
 });
@@ -1016,6 +1017,7 @@ apiRouter.post('/admin/users/:id/reject', verifyAdmin, (req, res) => {
   user.status = 'rejected';
   user.updatedAt = new Date();
   store.saveToFile();
+  broadcastUserUpdated(user);
 
   res.json({ success: true, user });
 });
@@ -1033,6 +1035,7 @@ apiRouter.post('/admin/users/:id/role', verifyAdmin, (req, res) => {
   user.role = role;
   user.updatedAt = new Date();
   store.saveToFile();
+  broadcastUserUpdated(user);
 
   res.json({ success: true, user });
 });
@@ -1044,9 +1047,13 @@ apiRouter.delete('/admin/users/:id', verifyAdmin, (req, res) => {
     return res.status(400).json({ error: 'Admin cannot delete their own account.' });
   }
 
+  const existing = store.users.get(targetId);
   store.users.delete(targetId);
   store.userContacts.delete(targetId);
   store.saveToFile();
+  if (existing) {
+    broadcastUserUpdated({ ...existing, deleted: true });
+  }
 
   res.json({ success: true });
 });
