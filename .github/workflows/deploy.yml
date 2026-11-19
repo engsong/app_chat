@@ -49,6 +49,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
+          cache: 'gradle'
 
       - name: 📱 Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -76,11 +77,15 @@ jobs:
           chmod +x gradlew
           set -o pipefail
           ./gradlew assembleDebug -x lint --no-daemon --stacktrace 2>&1 | tee /tmp/gradle_output.log || {
-            echo "## ❌ Gradle Build Error Details" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -n 120 /tmp/gradle_output.log >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            exit 1
+            echo "⚠️ First Gradle build attempt failed. Retrying with --refresh-dependencies..."
+            sleep 2
+            ./gradlew assembleDebug -x lint --no-daemon --refresh-dependencies --stacktrace 2>&1 | tee /tmp/gradle_output.log || {
+              echo "## ❌ Gradle Build Error Details" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              tail -n 120 /tmp/gradle_output.log >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              exit 1
+            }
           }
 
       - name: 📋 Upload Gradle Log on Failure
