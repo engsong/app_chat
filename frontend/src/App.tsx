@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { io, Socket } from 'socket.io-client';
-import { Lock, Phone, PhoneOff, Video } from 'lucide-react';
+import { Lock, Phone, PhoneOff, Video, WifiOff } from 'lucide-react';
 import { Sidebar } from './components/chat/Sidebar.js';
 import { ChatArea } from './components/chat/ChatArea.js';
 import { CallModal } from './components/calls/CallModal.js';
@@ -32,18 +32,126 @@ import {
 
 export const App: React.FC = () => {
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [allUsers, setAllUsers] = useState<User[]>([]);
-  const [contacts, setContacts] = useState<User[]>([]);
-  const [chats, setChats] = useState<Chat[]>([]);
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
-  const [labels, setLabels] = useState<Label[]>([]);
-  const [statuses, setStatuses] = useState<StatusItem[]>([]);
+
+  // Synchronous offline-first state initialization from localStorage (0ms instant launch)
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    try {
+      const alwaysRequireLogin = localStorage.getItem('ichat_always_require_login') === 'true';
+      if (!alwaysRequireLogin) {
+        const saved = localStorage.getItem('ichat_user') || localStorage.getItem('whatsapp_user');
+        if (saved) return JSON.parse(saved);
+      }
+    } catch (_) {}
+    return null;
+  });
+
+  const [allUsers, setAllUsers] = useState<User[]>(() => {
+    try {
+      const saved = localStorage.getItem('ichat_all_users');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return [];
+  });
+
+  const [contacts, setContacts] = useState<User[]>(() => {
+    try {
+      const savedUser = localStorage.getItem('ichat_user') || localStorage.getItem('whatsapp_user');
+      const uid = savedUser ? JSON.parse(savedUser)?.id : null;
+      if (uid) {
+        const saved = localStorage.getItem(`ichat_contacts_${uid}`);
+        if (saved) return JSON.parse(saved);
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  const [chats, setChats] = useState<Chat[]>(() => {
+    try {
+      const savedUser = localStorage.getItem('ichat_user') || localStorage.getItem('whatsapp_user');
+      const uid = savedUser ? JSON.parse(savedUser)?.id : null;
+      if (uid) {
+        const saved = localStorage.getItem(`ichat_chats_${uid}`);
+        if (saved) return JSON.parse(saved);
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  const [activeChatId, setActiveChatId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('ichat_active_chat_id') || null;
+    } catch (_) {}
+    return null;
+  });
+
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const initialChatId = localStorage.getItem('ichat_active_chat_id');
+      if (initialChatId) {
+        const saved = localStorage.getItem(`ichat_messages_${initialChatId}`);
+        if (saved) return JSON.parse(saved);
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const saved = localStorage.getItem('ichat_products');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return [];
+  });
+
+  const [quickReplies, setQuickReplies] = useState<QuickReply[]>(() => {
+    try {
+      const saved = localStorage.getItem('ichat_quick_replies');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return [];
+  });
+
+  const [labels, setLabels] = useState<Label[]>(() => {
+    try {
+      const saved = localStorage.getItem('ichat_labels');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return [];
+  });
+
+  const [statuses, setStatuses] = useState<StatusItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('ichat_statuses');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return [];
+  });
+
   const [selectedLabelId, setSelectedLabelId] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [isOnline, setIsOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // Online / Offline network status listener
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log('[Network] Device connected online');
+      setIsOnline(true);
+      if (socket && !socket.connected) {
+        socket.connect();
+      }
+    };
+    const handleOffline = () => {
+      console.log('[Network] Device went offline');
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [socket]);
 
   // Modals state
   const [showCatalog, setShowCatalog] = useState(false);
@@ -59,6 +167,51 @@ export const App: React.FC = () => {
   );
   const [pendingUsersCount, setPendingUsersCount] = useState(0);
   const [profileModalUser, setProfileModalUser] = useState<User | null>(null);
+
+  // Auto-sync activeChatId and immediately load its cached messages
+  useEffect(() => {
+    if (activeChatId) {
+      localStorage.setItem('ichat_active_chat_id', activeChatId);
+      try {
+        const cached = localStorage.getItem(`ichat_messages_${activeChatId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setMessages(parsed);
+          }
+        }
+      } catch (_) {}
+    } else {
+      localStorage.removeItem('ichat_active_chat_id');
+    }
+  }, [activeChatId]);
+
+  // Auto-persist messages cache whenever messages state updates for activeChatId
+  useEffect(() => {
+    if (activeChatId && messages.length > 0) {
+      try {
+        localStorage.setItem(`ichat_messages_${activeChatId}`, JSON.stringify(messages));
+      } catch (_) {}
+    }
+  }, [activeChatId, messages]);
+
+  // Auto-persist chats cache
+  useEffect(() => {
+    if (currentUser?.id && chats.length > 0) {
+      try {
+        localStorage.setItem(`ichat_chats_${currentUser.id}`, JSON.stringify(chats));
+      } catch (_) {}
+    }
+  }, [currentUser?.id, chats]);
+
+  // Auto-persist contacts cache
+  useEffect(() => {
+    if (currentUser?.id && contacts.length > 0) {
+      try {
+        localStorage.setItem(`ichat_contacts_${currentUser.id}`, JSON.stringify(contacts));
+      } catch (_) {}
+    }
+  }, [currentUser?.id, contacts]);
 
   // Unified Back Button Handler (makes Android hardware back button do the exact same back action as top-left back button)
   const backHandlerRef = useRef<() => boolean>(() => false);
@@ -331,7 +484,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [usersRes, productsRes, qrRes, labelsRes, statusRes] = await Promise.all([
+        const [usersRes, productsRes, qrRes, labelsRes, statusRes] = await Promise.allSettled([
           fetch('/api/users').then((r) => r.json()),
           fetch('/api/business/products').then((r) => r.json()),
           fetch('/api/business/quick-replies').then((r) => r.json()),
@@ -339,34 +492,48 @@ export const App: React.FC = () => {
           fetch('/api/status').then((r) => r.json()),
         ]);
 
-        setAllUsers(usersRes);
-        setProducts(productsRes);
-        setQuickReplies(qrRes);
-        setLabels(labelsRes);
-        setStatuses(statusRes);
+        if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value)) {
+          setAllUsers(usersRes.value);
+          try {
+            localStorage.setItem('ichat_all_users', JSON.stringify(usersRes.value));
+          } catch (_) {}
 
-        // Restore user from localStorage only if user hasn't set 'Always require login'
-        const alwaysRequireLogin = localStorage.getItem('ichat_always_require_login') === 'true';
-        if (!alwaysRequireLogin) {
-          const saved = localStorage.getItem('ichat_user') || localStorage.getItem('whatsapp_user');
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              const freshUser = usersRes?.find((u: any) => u.id === parsed.id);
-              if (freshUser) {
-                const merged = { ...parsed, ...freshUser };
-                setCurrentUser(merged);
-                localStorage.setItem('ichat_user', JSON.stringify(merged));
-              } else {
-                setCurrentUser(parsed);
-              }
-            } catch (e) {
-              // Ignore corrupted storage
+          // Refresh current user if available in fresh users list
+          if (currentUser) {
+            const freshUser = usersRes.value.find((u: any) => u.id === currentUser.id);
+            if (freshUser) {
+              const merged = { ...currentUser, ...freshUser };
+              setCurrentUser(merged);
+              localStorage.setItem('ichat_user', JSON.stringify(merged));
             }
           }
         }
+        if (productsRes.status === 'fulfilled' && Array.isArray(productsRes.value)) {
+          setProducts(productsRes.value);
+          try {
+            localStorage.setItem('ichat_products', JSON.stringify(productsRes.value));
+          } catch (_) {}
+        }
+        if (qrRes.status === 'fulfilled' && Array.isArray(qrRes.value)) {
+          setQuickReplies(qrRes.value);
+          try {
+            localStorage.setItem('ichat_quick_replies', JSON.stringify(qrRes.value));
+          } catch (_) {}
+        }
+        if (labelsRes.status === 'fulfilled' && Array.isArray(labelsRes.value)) {
+          setLabels(labelsRes.value);
+          try {
+            localStorage.setItem('ichat_labels', JSON.stringify(labelsRes.value));
+          } catch (_) {}
+        }
+        if (statusRes.status === 'fulfilled' && Array.isArray(statusRes.value)) {
+          setStatuses(statusRes.value);
+          try {
+            localStorage.setItem('ichat_statuses', JSON.stringify(statusRes.value));
+          } catch (_) {}
+        }
       } catch (err) {
-        console.error('Error fetching initial data:', err);
+        console.warn('[Offline] Initial network fetch skipped/failed, keeping cached data:', err);
       }
     };
 
@@ -378,10 +545,15 @@ export const App: React.FC = () => {
       const res = await fetch(`/api/contacts?userId=${userId}`);
       if (res.ok) {
         const data = await res.json();
-        setContacts(data);
+        if (Array.isArray(data)) {
+          setContacts(data);
+          try {
+            localStorage.setItem(`ichat_contacts_${userId}`, JSON.stringify(data));
+          } catch (_) {}
+        }
       }
     } catch (err) {
-      console.error('Error fetching contacts:', err);
+      console.warn('[Offline] Contacts network fetch failed, using cached contacts:', err);
     }
   };
 
@@ -411,16 +583,21 @@ export const App: React.FC = () => {
     const loadUserChats = async () => {
       try {
         const res = await fetch(`/api/chats?userId=${currentUser.id}`);
-        const userChats: Chat[] = await res.json();
-        setChats(userChats);
-        // Only auto-open first chat on desktop screens (>= 768px).
-        // On mobile (< 768px), keep activeChatId null so user lands on the Home Page (Chat list)!
-        const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768;
-        if (isDesktop && userChats.length > 0 && !activeChatId) {
-          setActiveChatId(userChats[0].id);
+        if (res.ok) {
+          const userChats: Chat[] = await res.json();
+          if (Array.isArray(userChats)) {
+            setChats(userChats);
+            try {
+              localStorage.setItem(`ichat_chats_${currentUser.id}`, JSON.stringify(userChats));
+            } catch (_) {}
+            const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768;
+            if (isDesktop && userChats.length > 0 && !activeChatId) {
+              setActiveChatId(userChats[0].id);
+            }
+          }
         }
       } catch (err) {
-        console.error('Error fetching chats:', err);
+        console.warn('[Offline] Chats network fetch failed, using cached chats:', err);
       }
     };
 
@@ -453,15 +630,22 @@ export const App: React.FC = () => {
     const loadMessages = async () => {
       try {
         const res = await fetch(`/api/chats/${activeChatId}/messages?userId=${currentUser.id}`);
-        const msgs = await res.json();
-        setMessages(msgs);
+        if (res.ok) {
+          const msgs = await res.json();
+          if (Array.isArray(msgs)) {
+            setMessages(msgs);
+            try {
+              localStorage.setItem(`ichat_messages_${activeChatId}`, JSON.stringify(msgs));
+            } catch (_) {}
+          }
+        }
 
         // Mark messages as read
-        if (socket && currentUser) {
+        if (socket && socket.connected && currentUser) {
           socket.emit('mark_messages_read', { chatId: activeChatId, userId: currentUser.id });
         }
       } catch (err) {
-        console.error('Error loading messages:', err);
+        console.warn('[Offline] Messages network fetch failed, using cached messages:', err);
       }
     };
 
@@ -1234,8 +1418,18 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="fixed inset-0 h-full w-full flex bg-[#111b21] text-white overflow-hidden font-sans">
-      {/* 1. Sidebar */}
+    <div className="fixed inset-0 h-full w-full flex flex-col bg-[#111b21] text-white overflow-hidden font-sans">
+      {/* Offline Status Bar (WhatsApp Style) */}
+      {!isOnline && (
+        <div className="bg-[#202c33] text-[#8696a0] border-b border-[#2a3942] px-4 py-1.5 text-xs flex items-center justify-center gap-2 select-none z-50">
+          <WifiOff className="w-3.5 h-3.5 text-[#f15c6d]" />
+          <span>Waiting for network... Showing loaded offline data</span>
+        </div>
+      )}
+
+      {/* Main App Container */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* 1. Sidebar */}
       <Sidebar
         chats={chats}
         activeChatId={activeChatId}
@@ -1298,7 +1492,7 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
-
+      </div>
 
       {/* 3. 1-on-1 Call Modal (WebRTC) */}
       <CallModal
