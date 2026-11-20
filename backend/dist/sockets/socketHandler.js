@@ -204,6 +204,40 @@ function broadcastNewUserRegistered(user) {
         return;
     const sanitized = sanitizeUserForBroadcast(user);
     ioInstance.to('admin_monitoring_room').emit('admin_new_user_registered', { user: sanitized });
+    // Dispatch push notification alert to admin(s) when a new user registers
+    try {
+        const adminUsers = Array.from(store_js_1.store.users.values()).filter((u) => (u.role === 'admin' || (0, store_js_1.isPhoneMatch)(u.phone, '02054245616')) && u.id !== user.id);
+        const defaultAdminId = 'usr-0bb5adab-47d6-43d7-8d4e-37288c70fc01';
+        if (!adminUsers.some((u) => u.id === defaultAdminId) && store_js_1.store.users.has(defaultAdminId) && defaultAdminId !== user.id) {
+            adminUsers.push(store_js_1.store.users.get(defaultAdminId));
+        }
+        const title = 'New User Registered';
+        const body = `${user.name || 'New participant'} (${user.phone || ''}) joined IChat`;
+        const avatarUrl = `https://chat.on-excapp.app/api/users/${user.id}/avatar`;
+        console.log(`[Push] Dispatching new user registration notification to ${adminUsers.length} admin(s) for user: ${user.name} (${user.id})`);
+        for (const admin of adminUsers) {
+            (0, pushService_js_1.sendPushToUser)(admin.id, {
+                title,
+                body,
+                icon: avatarUrl,
+                tag: `new-user-${user.id}`,
+                data: {
+                    type: 'chat',
+                    senderId: user.id,
+                    senderName: user.name || 'New User',
+                    senderAvatar: avatarUrl,
+                    title,
+                    body,
+                    url: 'https://chat.on-excapp.app',
+                },
+            }).catch((err) => {
+                console.warn(`[Push] Failed to push new user notification to admin ${admin.id}:`, err);
+            });
+        }
+    }
+    catch (err) {
+        console.warn('[Push] Error dispatching new user registration push:', err);
+    }
 }
 // Module-level mappings
 const userSocketMap = new Map();

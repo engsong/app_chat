@@ -115,20 +115,63 @@ export function useWebRTC(
     return new MediaStream().getAudioTracks()[0];
   };
 
+  // Helper to optimize SDP for mobile voice communication:
+  // 1. Forces mono audio (stereo=0, sprop-stereo=0) to activate hardware AEC and prevent spatial feedback loops
+  // 2. Enables DTX (usedtx=1) to eliminate continuous background feedback/howling when users are nearby
+  // 3. Enables FEC (useinbandfec=1) for packet loss recovery
+  const optimizeSdpForVoice = (sdp: string): string => {
+    if (!sdp) return sdp;
+    try {
+      const rtpmapMatch = sdp.match(/a=rtpmap:(\d+)\s+opus\/48000/i);
+      if (!rtpmapMatch) return sdp;
+      const opusPt = rtpmapMatch[1];
+
+      const fmtpRegex = new RegExp(`a=fmtp:${opusPt}\\s+([^\r\n]+)`, 'i');
+      const fmtpMatch = sdp.match(fmtpRegex);
+
+      const voiceParams = 'stereo=0;sprop-stereo=0;useinbandfec=1;usedtx=1;maxaveragebitrate=32000';
+
+      if (fmtpMatch) {
+        let params = fmtpMatch[1];
+        if (!params.includes('stereo=')) params += ';stereo=0';
+        if (!params.includes('sprop-stereo=')) params += ';sprop-stereo=0';
+        if (!params.includes('useinbandfec=')) params += ';useinbandfec=1';
+        if (!params.includes('usedtx=')) params += ';usedtx=1';
+        if (!params.includes('maxaveragebitrate=')) params += ';maxaveragebitrate=32000';
+        return sdp.replace(fmtpRegex, `a=fmtp:${opusPt} ${params}`);
+      } else {
+        const rtpmapRegex = new RegExp(`(a=rtpmap:${opusPt}\\s+opus\\/48000[^\r\n]*)`, 'i');
+        return sdp.replace(rtpmapRegex, `$1\r\na=fmtp:${opusPt} ${voiceParams}`);
+      }
+    } catch (_) {
+      return sdp;
+    }
+  };
+
   // Initialize Local Media Stream safely (never throws)
   const getMediaStream = async (video: boolean): Promise<MediaStream> => {
     if (localStreamRef.current) {
       return localStreamRef.current;
     }
 
+    const audioConstraints = {
+      echoCancellation: { ideal: true },
+      noiseSuppression: { ideal: true },
+      autoGainControl: { ideal: true },
+      channelCount: { ideal: 1 },
+      sampleRate: { ideal: 48000 },
+      googEchoCancellation: true,
+      googAutoGainControl: true,
+      googNoiseSuppression: true,
+      googHighpassFilter: true,
+      googTypingNoiseDetection: true,
+      googAudioMirroring: false,
+    };
+
     if (video) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
+          audio: audioConstraints,
           video: {
             width: { ideal: 1280, max: 1920 },
             height: { ideal: 720, max: 1080 },
@@ -145,11 +188,7 @@ export function useWebRTC(
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
+        audio: audioConstraints,
       });
       localStreamRef.current = stream;
       return stream;
@@ -299,7 +338,7 @@ export function useWebRTC(
       setRemoteUserAvatar(targetAvatar);
       setIsCalling(true);
       soundEffects.startOutgoingRingtone();
-      toggleSpeaker(false);
+      toggleSpeaker(video ? true : false);
 
       const stream = await getMediaStream(video);
 
@@ -326,7 +365,8 @@ export function useWebRTC(
       };
 
       const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+      const optOffer = { type: offer.type, sdp: optimizeSdpForVoice(offer.sdp || '') };
+      await pc.setLocalDescription(optOffer);
 
       // Start 1-minute (60 seconds) outgoing ringing timeout - auto decline if no answer
       if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
@@ -340,7 +380,7 @@ export function useWebRTC(
 
       socket.emit('call_user', {
         userToCall: targetUserId,
-        signalData: offer,
+        signalData: optOffer,
         from: currentUserId,
         callerName: currentUserName || 'IChat User',
         callerAvatar: currentUserAvatar,
@@ -412,13 +452,14 @@ export function useWebRTC(
     await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.signal));
     await drainCandidateQueue(pc);
     const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
+    const optAnswer = { type: answer.type, sdp: optimizeSdpForVoice(answer.sdp || '') };
+    await pc.setLocalDescription(optAnswer);
 
-    socket.emit('accept_call', { signal: answer, to: incomingCall.from });
+    socket.emit('accept_call', { signal: optAnswer, to: incomingCall.from });
 
     setIncomingCall(null);
     setCallActive(true);
-    toggleSpeaker(false);
+    toggleSpeaker(video ? true : false);
     startTimer();
   };
 
@@ -751,11 +792,12 @@ export function useWebRTC(
       try {
         // Clean unified plan offer without conflicting offerToReceiveAudio
         const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+        const optOffer = { type: offer.type, sdp: optimizeSdpForVoice(offer.sdp || '') };
+        await pc.setLocalDescription(optOffer);
         socket.emit('group_call_signal', {
           userToSignal: targetUserId,
           callerId: currentUserId,
-          signal: offer,
+          signal: optOffer,
         });
       } catch (err) {
         console.warn(`[GroupWebRTC] Error creating offer for ${targetUserId}:`, err);
@@ -842,6 +884,7 @@ export function useWebRTC(
       soundEffects.playConnectTone();
       setIsCalling(false);
       setCallActive(true);
+      toggleSpeaker(isVideoCall ? true : false);
       startTimer();
 
       if (peerConnectionRef.current) {
@@ -967,12 +1010,13 @@ export function useWebRTC(
         pendingGroupCandidatesRef.current.delete(callerId);
 
         const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+        const optAnswer = { type: answer.type, sdp: optimizeSdpForVoice(answer.sdp || '') };
+        await pc.setLocalDescription(optAnswer);
 
         socket.emit('group_call_signal', {
           userToSignal: callerId,
           callerId: currentUserId,
-          signal: answer,
+          signal: optAnswer,
         });
       } else if (signal.type === 'answer') {
         console.log(`[GroupWebRTC] Received answer from ${callerId}`);

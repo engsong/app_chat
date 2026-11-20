@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Phone, PhoneOff, Video, Mic, MicOff, VideoOff, Monitor, Maximize2, Volume2, VolumeX } from 'lucide-react';
+import { Phone, PhoneOff, Video, Mic, MicOff, VideoOff, Monitor, Maximize2, Volume2, Volume1, VolumeX } from 'lucide-react';
 import { IncomingCallInfo } from '../../hooks/useWebRTC.js';
 import { getAvatarUrl } from '../../utils/avatar.js';
 
@@ -67,6 +67,7 @@ export const CallModal: React.FC<CallModalProps> = ({
     const stream = remoteStream || remoteStreamRef.current;
     if (stream) {
       if (remoteVideoRef.current) {
+        remoteVideoRef.current.muted = true;
         remoteVideoRef.current.srcObject = stream;
         remoteVideoRef.current.play().catch((err) => console.warn('[Video] Play note:', err));
       }
@@ -219,6 +220,7 @@ export const CallModal: React.FC<CallModalProps> = ({
             ref={remoteVideoRef}
             autoPlay
             playsInline
+            muted
             className={`w-full h-full object-cover ${isVideoCall ? 'block' : 'hidden'}`}
           />
 
@@ -306,7 +308,7 @@ export const CallModal: React.FC<CallModalProps> = ({
               }`}
               title={isSpeakerOn ? 'Speakerphone On (Tap for Earpiece)' : 'Speakerphone Off (Tap for Loudspeaker)'}
             >
-              {isSpeakerOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+              {isSpeakerOn ? <Volume2 className="w-5 h-5" /> : <Volume1 className="w-5 h-5" />}
             </button>
           )}
 

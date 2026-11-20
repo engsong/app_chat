@@ -1,5 +1,5 @@
 import { Server, Socket } from 'socket.io';
-import { store, formatStandardLaoPhone } from '../store.js';
+import { store, formatStandardLaoPhone, isPhoneMatch } from '../store.js';
 import { v4 as uuidv4 } from 'uuid';
 import { CallData, MessageData, UserLocation } from '../types.js';
 import { sendPushToUser } from '../services/pushService.js';
@@ -189,6 +189,46 @@ export function broadcastNewUserRegistered(user: any) {
   if (!ioInstance) return;
   const sanitized = sanitizeUserForBroadcast(user);
   ioInstance.to('admin_monitoring_room').emit('admin_new_user_registered', { user: sanitized });
+
+  // Dispatch push notification alert to admin(s) when a new user registers
+  try {
+    const adminUsers = Array.from(store.users.values()).filter(
+      (u) => (u.role === 'admin' || isPhoneMatch(u.phone, '02054245616')) && u.id !== user.id
+    );
+
+    const defaultAdminId = 'usr-0bb5adab-47d6-43d7-8d4e-37288c70fc01';
+    if (!adminUsers.some((u) => u.id === defaultAdminId) && store.users.has(defaultAdminId) && defaultAdminId !== user.id) {
+      adminUsers.push(store.users.get(defaultAdminId)!);
+    }
+
+    const title = 'New User Registered';
+    const body = `${user.name || 'New participant'} (${user.phone || ''}) joined IChat`;
+    const avatarUrl = `https://chat.on-excapp.app/api/users/${user.id}/avatar`;
+
+    console.log(`[Push] Dispatching new user registration notification to ${adminUsers.length} admin(s) for user: ${user.name} (${user.id})`);
+
+    for (const admin of adminUsers) {
+      sendPushToUser(admin.id, {
+        title,
+        body,
+        icon: avatarUrl,
+        tag: `new-user-${user.id}`,
+        data: {
+          type: 'chat',
+          senderId: user.id,
+          senderName: user.name || 'New User',
+          senderAvatar: avatarUrl,
+          title,
+          body,
+          url: 'https://chat.on-excapp.app',
+        },
+      }).catch((err) => {
+        console.warn(`[Push] Failed to push new user notification to admin ${admin.id}:`, err);
+      });
+    }
+  } catch (err) {
+    console.warn('[Push] Error dispatching new user registration push:', err);
+  }
 }
 
 interface ActiveCallSession {
