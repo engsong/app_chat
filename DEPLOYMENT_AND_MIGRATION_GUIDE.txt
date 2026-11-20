@@ -1,0 +1,621 @@
+================================================================================
+ICHAT / WHATSAPP BUSINESS WEB & MOBILE APPLICATION
+MASTER PRODUCTION REFERENCE & NEW SERVER MIGRATION/DEPLOYMENT GUIDE
+================================================================================
+Target Domain: https://chat.on-excapp.app
+Repository: https://github.com/engsong1/app_chat
+Date: November 2026
+Version: 2.1.0-Production (Offline-Ready, WebRTC AEC/DTX, FCM Native Heads-Up)
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. EXECUTIVE SUMMARY & COMPLETED SUCCESSES
+   1.1. Native FCM Push Notifications & Avatar/App-Logo Badging
+   1.2. Heads-Up Banner, Ringtone & Vibration for Calling / End Calling
+   1.3. Speakerphone Toggle Fix (Loudspeaker <-> Earpiece Switching)
+   1.4. WebRTC Acoustic Feedback & Screeching Interference Elimination (AEC + DTX)
+   1.5. Real-Time Admin Registration Push Notification Alerts
+   1.6. Offline-First PWA, Instant Caching & Airplane Mode Data Persistence
+
+2. SERVER PREREQUISITES & SPECIFICATIONS
+   2.1. Hardware & Operating System
+   2.2. Network & DNS Requirements
+   2.3. Firewall & Security Ports
+
+3. STEP-BY-STEP NEW SERVER PROVISIONING
+   3.1. System Package Updates & Essential Tools
+   3.2. Docker Engine & Docker Compose Plugin Installation
+   3.3. UFW Firewall Configuration
+   3.4. Host Nginx & Certbot Installation
+   3.5. Cloning Application Code
+
+4. SECRETS, CONFIGURATIONS & ENVIRONMENT VARIABLES
+   4.1. Firebase Service Account JSON (FCM Push Service)
+   4.2. Web Push VAPID Keypair
+   4.3. Backend Production Environment (.env)
+   4.4. Host Nginx Anti-DDoS Security Configuration (/etc/nginx/conf.d/security.conf)
+   4.5. Host Nginx Reverse Proxy & SSL Configuration (/etc/nginx/sites-available/)
+   4.6. SSL Certificate Generation via Certbot (Let's Encrypt)
+
+5. DATA MIGRATION, PERSISTENCE & RESTORE PROCEDURE
+   5.1. Files & Databases Requiring Backup
+   5.2. Backup Command on Old Server (150.95.30.215)
+   5.3. Restore Command on New Server
+
+6. CONTAINER BUILD & PRODUCTION DEPLOYMENT
+   6.1. Docker Compose Structure
+   6.2. Production Build & Launch Sequence
+   6.3. Verification & Health Checks
+
+7. ANDROID MOBILE APP (CAPACITOR) ARCHITECTURE
+   7.1. Zero-APK-Rebuild Guarantee for Existing Users
+   7.2. Native Android Bridge & Push Receiver Implementation Notes
+   7.3. Capacitor Configuration
+
+8. OPERATIONAL MAINTENANCE & TROUBLESHOOTING CHEATSHEET
+   8.1. Docker Container Operations
+   8.2. Log Inspection
+   8.3. Host Nginx Management
+   8.4. SSL Auto-Renewal Verification
+
+
+================================================================================
+1. EXECUTIVE SUMMARY & COMPLETED SUCCESSES
+================================================================================
+
+1.1. NATIVE FCM PUSH NOTIFICATIONS & AVATAR/APP-LOGO BADGING
+- Issue: Users did not see notifications or profile pictures for incoming messages
+  and calls when the app was in the background or killed.
+- Solution Implemented:
+  * Backend push engine configured to emit "data-only" FCM payloads
+    (priority: 'high', ttl: 60s, urgency: 'high'). This prevents Android OS from
+    displaying generic fallback notifications and hands execution directly to the
+    native Android client (`AppFirebaseMessagingService.java` / `AppForegroundService.java`).
+  * Circular Profile Avatars + App Logo Badge: Native Android bitmap compositing
+    fetches the caller's / sender's profile image over HTTPS, crops it to an anti-aliased
+    circle, and overlays the official IChat app badge at the bottom-right corner.
+  * Formatted notification text displays:
+    [Avatar + App Logo Badge] [Sender / Caller Name] [Message Preview or Call State]
+
+1.2. HEADS-UP BANNER, RINGTONE & VIBRATION FOR CALLING / END CALLING
+- Issue: Incoming calls were missed because notifications did not play ringtones,
+  vibrate continuously, or display full-screen heads-up banners over other apps.
+- Solution Implemented:
+  * Android Notification Channel configured with `IMPORTANCE_HIGH` (heads-up banner).
+  * System Ringtone integration (`RingtoneManager.TYPE_RINGTONE`) with looping vibration pattern:
+    [0, 1000, 1000, 1000, 1000, 1000].
+  * Interactive Notification Action Buttons: "Accept" (Green) and "Decline" (Red)
+    handling WebRTC call setup or rejection directly from the notification shade.
+  * "Call Ended" Event: Incoming call notifications are automatically dismissed
+    immediately when caller hangs up, followed by a brief heads-up summary.
+
+1.3. SPEAKERPHONE TOGGLE FIX (LOUDSPEAKER <-> EARPIECE SWITCHING)
+- Issue: When a user enabled the loudspeaker on Android, tapping the speaker icon
+  could not switch the audio back to the internal phone earpiece.
+- Root Cause Identified:
+  * In `frontend/src/components/calls/CallModal.tsx`, `<video ref={remoteVideoRef} ...>`
+    was unmuted. In Android WebView (Chromium), unmuted HTML5 `<video>` tags bind directly
+    to `AudioManager.STREAM_MUSIC`, forcing output through the phone's physical loudspeaker.
+    This overpowered native `setSpeakerphoneOn(false)` requests.
+- Solution Implemented:
+  * Explicitly muted `<video>` (`muted` HTML attribute and `remoteVideoRef.current.muted = true`).
+  * Dedicated audio element `<audio ref={remoteAudioRef} />` handles incoming voice exclusively.
+  * Native JavaScript bridge calls `window.AndroidAudioBridge.setSpeakerphoneOn(false)`, which
+    sets `audioManager.mode = AudioManager.MODE_IN_COMMUNICATION` and `isSpeakerphoneOn = false`,
+    safely redirecting audio back to the physical earpiece receiver.
+  * Visual feedback: Button toggles between `Volume2` (Speaker) and `Volume1` (Earpiece).
+
+1.4. WEBRTC ACOUSTIC FEEDBACK & SCREECHING INTERFERENCE ELIMINATION (AEC + DTX)
+- Issue: Loud screeching, feedback squeals, and comb-filtering occurred when two
+  phones answered calls near each other in the same room.
+- Solution Implemented:
+  * Strict Mono Acoustic Echo Cancellation (AEC) Constraints in `frontend/src/hooks/useWebRTC.ts`:
+    channelCount: 1 (Forces mono to prevent multi-mic phase feedback),
+    sampleRate: 48000,
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    googEchoCancellation: true,
+    googNoiseSuppression: true,
+    googHighpassFilter: true,
+    googTypingNoiseDetection: true.
+  * SDP Opus Audio Optimization (`optimizeSdpForVoice`):
+    Before WebRTC peer exchange, session description protocols (SDP) are dynamically rewritten
+    to append Opus parameters:
+    `stereo=0;sprop-stereo=0;useinbandfec=1;usedtx=1;maxaveragebitrate=32000`
+  * Enabling `usedtx=1` (Discontinuous Transmission) instructs the codec to stop transmitting
+    audio packets entirely when the user is silent, instantly cutting acoustic feedback loops.
+
+1.5. REAL-TIME ADMIN REGISTRATION PUSH NOTIFICATION ALERTS
+- Requirement: Admins must be instantly alerted when a new user registers on the platform.
+- Solution Implemented:
+  * Added automated push dispatch in `backend/src/sockets/socketHandler.ts` inside
+    `broadcastNewUserRegistered`.
+  * Target: Users with `role === 'admin'`, phone number `02054245616`, and master admin ID
+    `usr-0bb5adab-47d6-43d7-8d4e-37288c70fc01`.
+  * Sends an immediate high-priority FCM and Web Push alert:
+    "New Registration: [Name] has just joined IChat (+[Phone])".
+
+1.6. OFFLINE-FIRST PWA, INSTANT CACHING & AIRPLANE MODE DATA PERSISTENCE
+- Issue: Turning on Airplane Mode or opening the app without internet caused a blank
+  white screen and wiped out chat/contact lists.
+- Solution Implemented:
+  * Nginx Caching Policy: Stripped `no-store` headers; configured `/assets/` with
+    `Cache-Control: public, max-age=31536000, immutable`, and `/` with `no-cache` for instant
+    Service Worker lifecycle updates.
+  * Service Worker Runtime Precaching (`frontend/public/sw.js` and `frontend/src/main.tsx`):
+    Automatically discovers and precaches HTML, JS/CSS bundles, manifest, and icons on app boot.
+    Implements Cache-First and Stale-While-Revalidate strategies for sub-second offline boot.
+  * Inline Dark Shell (`frontend/index.html`): Added inline dark styling (`#111b21`) and IChat
+    SVG splash screen directly to root HTML. Zero blank white screen during cold starts offline.
+  * Local Storage Persistence:
+    Chats and contacts are backed up to `ichat_chats_backup` and `ichat_contacts_backup`.
+    State initializes synchronously from localStorage on startup before any network call.
+  * In-App Connectivity Banner: Real-time banner displays "No internet connection. Showing cached messages."
+    when offline, automatically disappearing once connectivity is restored.
+
+
+================================================================================
+2. SERVER PREREQUISITES & SPECIFICATIONS
+================================================================================
+
+2.1. HARDWARE & OPERATING SYSTEM
+- OS: Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, or Debian 12 (64-bit)
+- Processor: Minimum 2 vCPUs (x86_64 or ARM64)
+- RAM: Minimum 2 GB (4 GB recommended for Docker image compilation)
+- Disk: Minimum 20 GB SSD / NVMe
+- Root or Sudo privileges
+
+2.2. NETWORK & DNS REQUIREMENTS
+- Public Static IPv4 address assigned to the server.
+- DNS A Record configured at domain registrar/Cloudflare:
+    chat.on-excapp.app  -->  [NEW_SERVER_PUBLIC_IP]
+  (Ensure DNS has fully propagated before running Certbot SSL commands).
+
+2.3. FIREWALL & SECURITY PORTS
+- Inbound Port 22/TCP: SSH Access
+- Inbound Port 80/TCP: HTTP (ACME Challenge & 301 HTTPS Redirect)
+- Inbound Port 443/TCP: HTTPS (Nginx Reverse Proxy & WebSockets)
+- Internal Port 5001/TCP: Backend API (Bound to 127.0.0.1 only)
+- Internal Port 5174/TCP: Frontend Nginx SPA (Bound to 127.0.0.1 only)
+- Internal Port 5432/TCP: PostgreSQL (Internal Docker network only)
+
+
+================================================================================
+3. STEP-BY-STEP NEW SERVER PROVISIONING
+================================================================================
+
+3.1. SYSTEM PACKAGE UPDATES & ESSENTIAL TOOLS
+Execute on the new server via SSH terminal:
+
+sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get install -y curl wget git ufw htop net-tools ca-certificates gnupg lsb-release
+
+3.2. DOCKER ENGINE & DOCKER COMPOSE PLUGIN INSTALLATION
+Install official Docker CE engine:
+
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+echo \
+  "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Verify Docker installation
+docker --version
+docker compose version
+
+3.3. UFW FIREWALL CONFIGURATION
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 22/tcp comment 'SSH'
+sudo ufw allow 80/tcp comment 'HTTP'
+sudo ufw allow 443/tcp comment 'HTTPS'
+sudo ufw enable
+sudo ufw status verbose
+
+3.4. HOST NGINX & CERTBOT INSTALLATION
+sudo apt-get install -y nginx certbot python3-certbot-nginx
+sudo systemctl enable nginx
+sudo systemctl start nginx
+
+3.5. CLONING APPLICATION CODE
+sudo mkdir -p /var/www/chat-app
+sudo chown -R $USER:$USER /var/www/chat-app
+git clone https://github.com/engsong1/app_chat.git /var/www/chat-app
+cd /var/www/chat-app
+
+
+================================================================================
+4. SECRETS, CONFIGURATIONS & ENVIRONMENT VARIABLES
+================================================================================
+
+4.1. FIREBASE SERVICE ACCOUNT JSON (FCM PUSH SERVICE)
+The backend push engine requires the Google Firebase Service Account private key file.
+Target Location on Server:
+/var/www/chat-app/backend/firebase-service-account.json
+
+File Content:
+{
+  "type": "service_account",
+  "project_id": "companion-app-4cb44",
+  "private_key_id": "YOUR_FIREBASE_PRIVATE_KEY_ID",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nYOUR_FIREBASE_PRIVATE_KEY\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-32o6b@companion-app-4cb44.iam.gserviceaccount.com",
+  "client_id": "112702588147743912648",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-32o6b%40companion-app-4cb44.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
+
+(Ensure file permissions: chmod 600 /var/www/chat-app/backend/firebase-service-account.json)
+
+4.2. WEB PUSH VAPID KEYPAIR
+Public Key:
+BIlt8FQuOXc0JAYLqFtlAJpBQf6HZfaUEgXb5hYeeUUZkQxaELnYqcO89KrcnP28OUhlf2ufd-KRAyYGixKDrYg
+
+Private Key:
+UWlG6zY-E6ZHBgVJVmo1UIdF-dxWU0PtQQaeerbS_XA
+
+Subject / Contact Email:
+mailto:admin@on-excapp.app
+
+4.3. BACKEND PRODUCTION ENVIRONMENT (.env)
+Create or verify `/var/www/chat-app/backend/.env`:
+
+PORT=5000
+NODE_ENV=production
+DATABASE_URL=postgresql://postgres:SuperSecretDBPass2026!@whatsapp_postgres:5432/whatsapp_business?schema=public
+JWT_SECRET=ultra_secure_whatsapp_jwt_token_2026_super_key
+CLIENT_URL=https://chat.on-excapp.app
+VAPID_PUBLIC_KEY=BIlt8FQuOXc0JAYLqFtlAJpBQf6HZfaUEgXb5hYeeUUZkQxaELnYqcO89KrcnP28OUhlf2ufd-KRAyYGixKDrYg
+VAPID_PRIVATE_KEY=UWlG6zY-E6ZHBgVJVmo1UIdF-dxWU0PtQQaeerbS_XA
+VAPID_EMAIL=mailto:admin@on-excapp.app
+
+4.4. HOST NGINX ANTI-DDOS SECURITY CONFIGURATION
+Create `/etc/nginx/conf.d/security.conf`:
+
+# Rate limiting zones
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=30r/s;
+limit_req_zone $binary_remote_addr zone=auth_limit:10m rate=5r/s;
+limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
+
+# Bad bot blocking map
+map $http_user_agent $bad_bot {
+    default 0;
+    ~*(nikto|sqlmap|acunetix|masscan|nessus|nmap|zgrab|morfeus) 1;
+}
+
+4.5. HOST NGINX REVERSE PROXY CONFIGURATION
+Create `/etc/nginx/sites-available/chat.on-excapp.app.conf`:
+
+upstream whatsapp_backend_upstream {
+    server 127.0.0.1:5001;
+    keepalive 32;
+}
+
+upstream whatsapp_frontend_upstream {
+    server 127.0.0.1:5174;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.on-excapp.app;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        allow all;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name chat.on-excapp.app;
+
+    ssl_certificate /etc/letsencrypt/live/chat.on-excapp.app/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/chat.on-excapp.app/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:50m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(self), microphone=(self), display-capture=(self)" always;
+
+    limit_conn conn_limit 25;
+
+    if ($bad_bot) {
+        return 403;
+    }
+
+    location ~* /\.(git|env|htaccess|svn|hg) {
+        deny all;
+        return 404;
+    }
+
+    location ~* \.(php|asp|aspx|jsp|cgi)$ {
+        deny all;
+        return 404;
+    }
+
+    # Real-Time WebSockets & WebRTC Signaling
+    location /socket.io/ {
+        proxy_pass http://whatsapp_backend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        proxy_buffering off;
+    }
+
+    # REST API Endpoints
+    location /api/ {
+        limit_req zone=api_limit burst=20 nodelay;
+
+        proxy_pass http://whatsapp_backend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 60s;
+    }
+
+    location /api/auth/ {
+        limit_req zone=auth_limit burst=5 nodelay;
+
+        proxy_pass http://whatsapp_backend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /download/ {
+        alias /var/www/chat-app/downloads/;
+        autoindex off;
+        add_header Content-Disposition 'attachment';
+    }
+
+    # Static Assets (Offline PWA Caching)
+    location /assets/ {
+        proxy_pass http://whatsapp_frontend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location = /sw.js {
+        proxy_pass http://whatsapp_frontend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        add_header Cache-Control "no-cache";
+    }
+
+    location / {
+        proxy_pass http://whatsapp_frontend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        add_header Cache-Control "no-cache" always;
+    }
+}
+
+Enable site:
+sudo ln -sf /etc/nginx/sites-available/chat.on-excapp.app.conf /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+
+4.6. SSL CERTIFICATE GENERATION VIA CERTBOT
+Before issuing SSL certificates, temporarily generate Let's Encrypt challenge dir:
+sudo mkdir -p /var/www/certbot
+
+Run Certbot:
+sudo certbot certonly --nginx -d chat.on-excapp.app --non-interactive --agree-tos -m admin@on-excapp.app
+
+Test Nginx syntax and reload:
+sudo nginx -t
+sudo systemctl reload nginx
+
+
+================================================================================
+5. DATA MIGRATION, PERSISTENCE & RESTORE PROCEDURE
+================================================================================
+
+5.1. FILES & DATABASES REQUIRING BACKUP
+1. Primary App Store (`store.json`): Contains all users, messages, contacts,
+   push tokens, channel subscriptions, and call logs.
+   Location inside container: `/app/data/store.json`
+   Named Docker Volume: `backend_data`
+2. PostgreSQL Database: `whatsapp_business`
+   Named Docker Volume: `postgres_data`
+3. Uploads Directory: `/var/www/chat-app/backend/uploads` (profile photos, voice notes, media)
+
+5.2. BACKUP COMMAND ON OLD SERVER (150.95.30.215)
+Run on the old server:
+mkdir -p /root/migration_backup
+
+# 1. Backup store.json
+docker cp whatsapp_backend:/app/data/store.json /root/migration_backup/store.json
+
+# 2. Dump PostgreSQL database
+docker exec -t whatsapp_postgres pg_dump -U postgres whatsapp_business > /root/migration_backup/whatsapp_business.sql
+
+# 3. Archive uploaded media
+tar -czf /root/migration_backup/uploads.tar.gz -C /var/www/chat-app/backend uploads/
+
+# Transfer backup archive to new server:
+scp -r /root/migration_backup root@[NEW_SERVER_IP]:/root/
+
+5.3. RESTORE COMMAND ON NEW SERVER
+Run on the new server after launching Docker containers:
+
+# 1. Restore store.json
+docker cp /root/migration_backup/store.json whatsapp_backend:/app/data/store.json
+docker exec whatsapp_backend chown -R node:node /app/data/store.json
+
+# 2. Restore PostgreSQL database
+docker exec -i whatsapp_postgres psql -U postgres whatsapp_business < /root/migration_backup/whatsapp_business.sql
+
+# 3. Restore uploaded media
+tar -xzf /root/migration_backup/uploads.tar.gz -C /var/www/chat-app/backend/
+
+# 4. Restart backend container to reload restored state
+docker restart whatsapp_backend
+
+
+================================================================================
+6. CONTAINER BUILD & PRODUCTION DEPLOYMENT
+================================================================================
+
+6.1. DOCKER COMPOSE STRUCTURE
+The repository `docker-compose.yml` orchestrates 3 isolated services:
+- `whatsapp_postgres`: PostgreSQL 17 Alpine on internal bridge network `whatsapp_net`
+- `whatsapp_backend`: Node.js 20 TypeScript API and WebSockets on port `127.0.0.1:5001`
+- `whatsapp_frontend`: Nginx Alpine serving compiled React PWA on port `127.0.0.1:5174`
+
+6.2. PRODUCTION BUILD & LAUNCH SEQUENCE
+Execute in `/var/www/chat-app`:
+
+# Step 1: Build containers without cached layers
+docker compose build --no-cache
+
+# Step 2: Remove any marked-for-removal containers to avoid race conditions
+docker rm -f whatsapp_postgres whatsapp_backend whatsapp_frontend 2>/dev/null || true
+
+# Step 3: Launch containers in detached background mode
+docker compose up -d
+
+# Step 4: Ensure database migrations are applied
+docker exec -t whatsapp_backend npx prisma db push --accept-data-loss
+
+6.3. VERIFICATION & HEALTH CHECKS
+Run the following verification commands:
+
+# Check container running state
+docker compose ps
+
+# Verify backend health and push service initialization
+docker logs --tail 50 whatsapp_backend
+(Expected: "[FCM] Firebase Admin SDK initialized successfully" and "Server running on port 5000")
+
+# Verify host reverse proxy and headers
+curl -I https://chat.on-excapp.app/
+(Expected: HTTP/2 200, Cache-Control: no-cache)
+
+curl -I https://chat.on-excapp.app/assets/index.js
+(Expected: Cache-Control: public, max-age=31536000, immutable)
+
+curl -I https://chat.on-excapp.app/socket.io/
+(Expected: HTTP/2 400 or WebSocket upgrade response)
+
+
+================================================================================
+7. ANDROID MOBILE APP (CAPACITOR) ARCHITECTURE
+================================================================================
+
+7.1. ZERO-APK-REBUILD GUARANTEE FOR EXISTING USERS
+- The installed Android APK is a Capacitor-wrapped progressive hybrid application.
+- All UI components, WebRTC audio fixes, Service Worker caching, and React logic
+  are served dynamically from `https://chat.on-excapp.app`.
+- As long as the domain `chat.on-excapp.app` points to the new server with valid SSL,
+  all existing installed devices (Vivo, Infinix, Samsung, etc.) will automatically
+  receive all updates on app restart WITHOUT needing to reinstall the APK.
+
+7.2. NATIVE ANDROID BRIDGE & PUSH RECEIVER NOTES
+The Android native layer includes two crucial bridges:
+1. `AndroidAudioBridge`:
+   - Method: `setSpeakerphoneOn(boolean on)`
+   - Manages `AudioManager.MODE_IN_COMMUNICATION` and `isSpeakerphoneOn`.
+   - Allows switching between loudspeaker and physical earpiece receiver.
+2. `AppFirebaseMessagingService`:
+   - Listens to high-priority FCM data payloads.
+   - Decodes caller avatars and overlays the circular IChat logo badge.
+   - Fires heads-up banners with full-screen intent, ringtone, and vibration.
+
+7.3. CAPACITOR CONFIGURATION (Reference: android/capacitor.config.ts)
+{
+  appId: 'com.onexcapp.ichat',
+  appName: 'IChat',
+  webDir: 'dist',
+  server: {
+    url: 'https://chat.on-excapp.app',
+    cleartext: false
+  }
+}
+
+
+================================================================================
+8. OPERATIONAL MAINTENANCE & TROUBLESHOOTING CHEATSHEET
+================================================================================
+
+8.1. DOCKER CONTAINER OPERATIONS
+- Restart entire stack:
+  cd /var/www/chat-app && docker compose restart
+
+- Rebuild frontend after git pull:
+  cd /var/www/chat-app && git pull
+  docker compose build --no-cache whatsapp_frontend
+  docker rm -f whatsapp_frontend
+  docker compose up -d whatsapp_frontend
+
+- Rebuild backend after git pull:
+  cd /var/www/chat-app && git pull
+  docker compose build --no-cache whatsapp_backend
+  docker rm -f whatsapp_backend
+  docker compose up -d whatsapp_backend
+
+8.2. LOG INSPECTION
+- Real-time backend logs (Signaling & Push):
+  docker logs -f whatsapp_backend
+
+- Real-time host Nginx access & error logs:
+  tail -f /var/log/nginx/access.log
+  tail -f /var/log/nginx/error.log
+
+8.3. HOST NGINX MANAGEMENT
+- Test configuration syntax:
+  sudo nginx -t
+
+- Reload without downtime:
+  sudo systemctl reload nginx
+
+8.4. SSL AUTO-RENEWAL VERIFICATION
+Certbot installs an automatic systemd renewal timer. Verify with:
+sudo systemctl status certbot.timer
+sudo certbot renew --dry-run
+
+================================================================================
+END OF GUIDE
+================================================================================
