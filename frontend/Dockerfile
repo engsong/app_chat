@@ -21,15 +21,18 @@ server {
     # Cache static assets
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
         expires 1y;
-        add_header Cache-Control "public, immutable";
+        add_header Cache-Control "public, max-age=31536000, immutable";
     }
 
-    # SPA fallback to index.html - no-cache so mobile WebView and PWA immediately fetch latest bundle
+    # Service Worker must revalidate when online
+    location = /sw.js {
+        add_header Cache-Control "no-cache";
+    }
+
+    # SPA fallback to index.html - no-cache allows offline caching while checking server when online
     location / {
         try_files $uri $uri/ /index.html;
-        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
-        add_header Pragma "no-cache" always;
-        add_header Expires "0" always;
+        add_header Cache-Control "no-cache" always;
     }
 }
 EOF

@@ -61,6 +61,8 @@ export const App: React.FC = () => {
         const saved = localStorage.getItem(`ichat_contacts_${uid}`);
         if (saved) return JSON.parse(saved);
       }
+      const backup = localStorage.getItem('ichat_contacts_backup');
+      if (backup) return JSON.parse(backup);
     } catch (_) {}
     return [];
   });
@@ -70,9 +72,11 @@ export const App: React.FC = () => {
       const savedUser = localStorage.getItem('ichat_user') || localStorage.getItem('whatsapp_user');
       const uid = savedUser ? JSON.parse(savedUser)?.id : null;
       if (uid) {
-        const saved = localStorage.getItem(`ichat_chats_${uid}`);
+        const saved = localStorage.getItem(`ichat_chats_${uid}`) || localStorage.getItem('ichat_chats_backup');
         if (saved) return JSON.parse(saved);
       }
+      const backup = localStorage.getItem('ichat_chats_backup');
+      if (backup) return JSON.parse(backup);
     } catch (_) {}
     return [];
   });
@@ -197,18 +201,24 @@ export const App: React.FC = () => {
 
   // Auto-persist chats cache
   useEffect(() => {
-    if (currentUser?.id && chats.length > 0) {
+    if (chats.length > 0) {
       try {
-        localStorage.setItem(`ichat_chats_${currentUser.id}`, JSON.stringify(chats));
+        if (currentUser?.id) {
+          localStorage.setItem(`ichat_chats_${currentUser.id}`, JSON.stringify(chats));
+        }
+        localStorage.setItem('ichat_chats_backup', JSON.stringify(chats));
       } catch (_) {}
     }
   }, [currentUser?.id, chats]);
 
   // Auto-persist contacts cache
   useEffect(() => {
-    if (currentUser?.id && contacts.length > 0) {
+    if (contacts.length > 0) {
       try {
-        localStorage.setItem(`ichat_contacts_${currentUser.id}`, JSON.stringify(contacts));
+        if (currentUser?.id) {
+          localStorage.setItem(`ichat_contacts_${currentUser.id}`, JSON.stringify(contacts));
+        }
+        localStorage.setItem('ichat_contacts_backup', JSON.stringify(contacts));
       } catch (_) {}
     }
   }, [currentUser?.id, contacts]);

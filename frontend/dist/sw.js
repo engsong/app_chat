@@ -10,14 +10,35 @@ const STATIC_PRECACHE = [
   '/default-avatar.png',
 ];
 
-// 1. Install Event: Cache Core App Shell
+// 1. Install Event: Cache Core App Shell & all dynamic JS/CSS build assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
+    caches.open(CACHE_NAME).then(async (cache) => {
       console.log('[SW] Pre-caching core app shell for offline use');
-      return cache.addAll(STATIC_PRECACHE).catch((err) => {
+      await cache.addAll(STATIC_PRECACHE).catch((err) => {
         console.warn('[SW] Non-fatal precache error:', err);
       });
+
+      // Fetch /index.html to find and cache every script and stylesheet
+      try {
+        const res = await fetch('/index.html', { cache: 'no-cache' });
+        if (res.ok) {
+          const html = await res.text();
+          const matches = html.match(/(?:src|href)="(\/assets\/[^"]+)"/g) || [];
+          for (const m of matches) {
+            const cleanUrl = m.replace(/^(?:src|href)="/, '').replace(/"$/, '');
+            try {
+              const aRes = await fetch(cleanUrl);
+              if (aRes.ok) {
+                await cache.put(cleanUrl, aRes);
+                console.log('[SW] Precached asset:', cleanUrl);
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (e) {
+        console.warn('[SW] Asset discovery in index.html skipped:', e);
+      }
     })
   );
   self.skipWaiting();
